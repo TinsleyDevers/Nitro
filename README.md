@@ -1,6 +1,7 @@
 # Nitro
 
-Performance fixes for very high mod counts. Built for NeoForge 21.1.x / Minecraft 1.21.1 and
+Faster loading for Minecraft modpacks with hundreds of mods: a NeoForge performance mod that
+cuts startup time and world join time on very high mod counts. Built for NeoForge 21.1.x / Minecraft 1.21.1 and
 measured on a 1017-mod pack: launch to world screen went from 6:53 (original) to about 2:00, and the
 world join after that from about 3:13 to about 2:30. It runs on dedicated servers too.
 

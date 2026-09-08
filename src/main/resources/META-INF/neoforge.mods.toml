@@ -12,7 +12,8 @@ logoBlur = false
 displayURL = "https://modrinth.com/mod/nitro"
 authors = "ZambieD"
 description = '''
-Launch and world-load fixes for packs with hundreds of mods.
+Faster loading for modpacks with hundreds of mods: shorter startup, quicker
+world join, same game.
 
 The JDK 21 module resolver takes minutes to sort out a thousand mod jars
 before a single mod class loads; Nitro patches in the JDK 25 algorithm and
