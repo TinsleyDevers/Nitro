@@ -1,0 +1,79 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.143'
+}
+
+version = project.mod_version
+group = 'com.tinsl.nitro'
+
+// This is the *inner* mod jar. The distributable jar is produced by the :launcher project
+// (build/libs/nitro-<version>.jar), which embeds this jar and the JVM agent.
+base {
+    archivesName = 'nitro-mod'
+}
+
+// The inner jar is embedded, not shipped: build/libs holds only the distributable.
+tasks.named('jar', Jar) {
+    destinationDirectory = layout.buildDirectory.dir('embedded')
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+    maven {
+        name = 'BlameJared'
+        url = 'https://maven.blamejared.com/'
+    }
+}
+
+// Settings class shared with the launcher half.
+sourceSets.main.java.srcDir(file('common/src/main/java'))
+
+neoForge {
+    version = project.neo_version
+
+    runs {
+        client {
+            client()
+        }
+    }
+
+    mods {
+        nitro {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+dependencies {
+    // Shared internals, published to the local maven repo from the ZambieLib
+    // project (gradlew publishToMavenLocal there). Ships as its own mod at runtime.
+    compileOnly 'com.tinsl.zambielib:zambielib:1.1.0+1.21.1-neoforge'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    // JEI is an optional runtime dependency; we compile against it for the async-startup patch.
+    compileOnly "mezz.jei:jei-${minecraft_version}-neoforge:${jei_version}"
+}
+
+tasks.named('test') { useJUnitPlatform() }
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.runtimeClasspath
+
+tasks.named('jar', Jar) {
+    manifest {
+        attributes(
+            'Specification-Title': 'Nitro',
+            'Implementation-Title': 'Nitro (mod)',
+            'Implementation-Version': project.version
+        )
+    }
+}
+
+// Building the root project produces the final distributable jar too.
+tasks.named('assemble') {
+    dependsOn ':launcher:jar'
+}

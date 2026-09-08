@@ -1,0 +1,31 @@
+plugins {
+    id 'java'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+tasks.withType(JavaCompile).configureEach {
+    // The resolver patch uses the JDK's internal copy of ASM so the agent has no dependencies at all.
+    options.release = null
+    options.compilerArgs.addAll([
+        '--add-exports', 'java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED',
+        '-Xlint:-options'
+    ])
+}
+
+tasks.named('jar', Jar) {
+    archiveBaseName = 'nitro-agent'
+    // Embedded in the distributable, never shipped on its own: keep it out of build/libs.
+    destinationDirectory = layout.buildDirectory.dir('embedded')
+    manifest {
+        attributes(
+            'Agent-Class': 'nitro.agent.NitroAgent',
+            'Premain-Class': 'nitro.agent.NitroAgent',
+            'Launcher-Agent-Class': 'nitro.agent.NitroAgent',
+            'Can-Retransform-Classes': 'true',
+            'Can-Redefine-Classes': 'true'
+        )
+    }
+}

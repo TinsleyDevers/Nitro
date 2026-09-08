@@ -1,0 +1,44 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "priority": 1500,
+  "package": "com.tinsl.nitro.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "plugin": "com.tinsl.nitro.mixin.NitroMixinPlugin",
+  "mixins": [
+    "RecipeManagerMixin",
+    "resources.PathPackResourcesMixin",
+    "resources.MoonlightFastSearchPackMixin",
+    "resources.MoonlightCachedPackAccessor",
+    "resources.MoonlightCacheWriteMixin",
+    "modernfix.AttributeInternerMixin",
+    "sable.SableApplyOnceMixin",
+    "megacells.CompressionCandidateMixin",
+    "hexerei.HexereiWoodcutterMixin",
+    "farmersdelight.ItemAbilityIngredientMixin",
+    "relics.RelicsCreativeTabMixin",
+    "spawn.MobEarlyEquipmentMixin",
+    "compat.CreateOreExcavationKubePluginMixin",
+    "compat.MoogsPathsWorkerMixin"
+  ],
+  "client": [
+    "telemetry.WorldOpenTelemetryMixin",
+    "telemetry.ConnectTelemetryMixin",
+    "modernfix.ModelBakeEventHelperMixin",
+    "modernfix.ModelBakeEventHelperCacheMixin",
+    "modernfix.ModelManagerReloadMixin",
+    "modernfix.ModelVisibilityIndexMixin",
+    "moreculling.MoreCullingLazyShapeMixin",
+    "puzzles.PuzzlesTopLevelModelsMixin",
+    "jaopca.JaopcaModelHandlerMixin",
+    "elysium.ElysiumConditionCacheMixin",
+    "jei.JeiStarterAccessor",
+    "jei.JeiStarterMixin",
+    "jei.ErrorUtilMixin",
+    "random.LegacyRandomSourceMixin",
+    "random.C2meCheckedRandomMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

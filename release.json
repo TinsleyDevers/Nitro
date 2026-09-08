@@ -1,0 +1,39 @@
+{
+    "name": "Nitro",
+    "version": "1.0.3",
+    "releaseType": "release",
+    "changelog": "CHANGELOG.md",
+    "modrinth": {
+        "projectId": "nitro"
+    },
+    "curseforge": {
+        "projectId": ""
+    },
+    "github": {
+        "repo": "TinsleyDevers/Nitro"
+    },
+    "files": [
+        {
+            "target": "1.21.1-neoforge",
+            "jar": "build/libs/nitro-*.jar",
+            "loaders": [
+                "neoforge"
+            ],
+            "gameVersions": [
+                "1.21.1"
+            ],
+            "environment": "both",
+            "javaVersion": "Java 21",
+            "depType": "required",
+            "dependencies": {
+                "modrinth": [
+                    "zambielib"
+                ],
+                "curseforge": [
+                    "zambielib"
+                ]
+            },
+            "attachSources": false
+        }
+    ]
+}

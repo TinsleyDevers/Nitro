@@ -1,0 +1,59 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "MIT"
+issueTrackerURL = "https://github.com/TinsleyDevers/Nitro/issues"
+
+[[mods]]
+modId = "nitro"
+version = "1.0.3"
+displayName = "Nitro"
+logoFile = "icon.png"
+logoBlur = false
+displayURL = "https://modrinth.com/mod/nitro"
+authors = "ZambieD"
+description = '''
+Launch and world-load fixes for packs with hundreds of mods.
+
+The JDK 21 module resolver takes minutes to sort out a thousand mod jars
+before a single mod class loads; Nitro patches in the JDK 25 algorithm and
+that wait is gone. Mixin, the jar handler and the resource-pack lookups get
+indexes instead of full scans, JEI builds its recipe list off the render
+thread, folder data packs are read once into memory, and a handful of mods
+that scan the whole registry on every world join now scan their own items.
+
+Every fix switches on only when the mod it targets is installed, and every
+one has a switch in config/nitro.properties. Measured on a 1000-mod pack:
+launch to menu went from about 7 minutes to under 2, world join from 3
+minutes to 2. Works on dedicated servers as well.
+'''
+
+[[mixins]]
+config = "nitro.mixins.json"
+
+[[dependencies.nitro]]
+modId = "zambielib"
+type = "required"
+versionRange = "[1.1,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.nitro]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1,21.2)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.nitro]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.21.2)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.nitro]]
+modId = "jei"
+type = "optional"
+versionRange = "[19.0,20)"
+ordering = "AFTER"
+side = "CLIENT"

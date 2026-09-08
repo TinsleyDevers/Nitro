@@ -1,0 +1,80 @@
+plugins {
+    id 'java'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.neoforged.net/releases' }
+    maven { url = 'https://libraries.minecraft.net' }
+}
+
+// The settings class is shared with the mod half of the jar, but the two halves live in different
+// module layers and Java forbids two modules exporting the same package. So the launcher gets a
+// copy relocated into its own package at build time.
+def relocatedDir = layout.buildDirectory.dir('generated/relocated')
+tasks.register('relocateCommon', Sync) {
+    from(rootProject.file('common/src/main/java/com/tinsl/nitro/common'))
+    into(relocatedDir.map { it.dir('com/tinsl/nitro/launch') })
+    filter { String line -> line.replace('package com.tinsl.nitro.common;', 'package com.tinsl.nitro.launch;') }
+}
+sourceSets.main.java.srcDir(relocatedDir)
+tasks.named('compileJava') { dependsOn 'relocateCommon' }
+
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation 'cpw.mods:modlauncher:11.0.5'
+    testImplementation 'org.ow2.asm:asm-tree:9.7.1'
+    testImplementation 'org.ow2.asm:asm-analysis:9.7.1'
+    testImplementation 'org.apache.logging.log4j:log4j-api:2.22.1'
+    compileOnly 'cpw.mods:modlauncher:11.0.5'
+    compileOnly 'net.neoforged.fancymodloader:loader:4.0.44'
+    compileOnly 'cpw.mods:securejarhandler:3.0.8'
+    compileOnly 'org.apache.logging.log4j:log4j-api:2.22.1'
+    compileOnly 'org.jetbrains:annotations:24.1.0'
+    // ASM ships with ModLauncher; used for the loader-level patches.
+    compileOnly 'org.ow2.asm:asm:9.7.1'
+    compileOnly 'org.ow2.asm:asm-tree:9.7.1'
+    // Hook classes the patched loader code calls into (they live in the agent jar, on the bootstrap path at runtime).
+    compileOnly project(':agent')
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    systemProperty 'nitro.packDir', providers.gradleProperty('packDir').getOrElse('')
+}
+
+/*
+ * This is the jar that goes into the mods folder.
+ *
+ * FML puts any mods-folder jar that provides an ITransformationService into the early SERVICE
+ * layer and then refuses to load the same file again as a mod ("already located earlier"). So
+ * the actual mod is embedded as META-INF/nitro/nitro-mod.jar and registered through
+ * NitroDependencyLocator, the same technique CrashAssistant uses.
+ */
+tasks.named('jar', Jar) {
+    dependsOn ':agent:jar', ':jar'
+    archiveBaseName = 'nitro'
+    archiveVersion = rootProject.version.toString()
+    destinationDirectory = rootProject.layout.buildDirectory.dir('libs')
+    from(project(':agent').tasks.named('jar').map { it.archiveFile }) {
+        into 'META-INF/nitro'
+        rename { 'nitro-agent.jar' }
+    }
+    from(rootProject.tasks.named('jar').map { it.archiveFile }) {
+        into 'META-INF/nitro'
+        rename { 'nitro-mod.jar' }
+    }
+    manifest {
+        attributes(
+            'Automatic-Module-Name': 'nitro.launch',
+            'Specification-Title': 'Nitro',
+            'Implementation-Title': 'Nitro',
+            'Implementation-Version': rootProject.version.toString()
+        )
+    }
+}
