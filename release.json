@@ -4,7 +4,7 @@
     "releaseType": "release",
     "changelog": "CHANGELOG.md",
     "modrinth": {
-        "projectId": "nitro"
+        "projectId": "nitro-performance"
     },
     "curseforge": {
         "projectId": ""

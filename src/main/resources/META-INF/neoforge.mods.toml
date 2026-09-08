@@ -9,7 +9,7 @@ version = "1.0.3"
 displayName = "Nitro"
 logoFile = "icon.png"
 logoBlur = false
-displayURL = "https://modrinth.com/mod/nitro"
+displayURL = "https://modrinth.com/mod/nitro-performance"
 authors = "ZambieD"
 description = '''
 Faster loading for modpacks with hundreds of mods: shorter startup, quicker
