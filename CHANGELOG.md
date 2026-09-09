@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.1.0 (2026-09-09)
+
+Nitro used to decide whether to patch another mod by asking "is it installed". That is not enough:
+a mod that renames a field Nitro reaches into makes the fix fail to apply, and that takes the game
+down. Every one of those fixes now checks the class inside the installed jar first and skips itself
+if it no longer fits, so the worst case is one missing fix and a line in the log.
+
+- Async JEI was pinned to exactly JEI 19.53.0.425 and silently switched itself off on any other
+  build, which included 19.53.0.426. It now applies across a version range (jeiVersions in the
+  config), verifies JEI's internals before it takes the startup over, and hands the whole job back
+  to JEI untouched when they do not match. The Envelope adapter was gated on exact jar file names
+  and had gone quiet for the same reason; it looks at the mods folder properly now.
+- Every fix that patches another mod declares the fields and methods it needs. They are checked
+  against the installed jar before Mixin sees the class. A mismatch skips that one fix.
+- Version ranges are recorded for every such mod and reported, but they no longer switch a fix off
+  on their own, because the shape check is what actually prevents crashes. strictVersions=true goes
+  back to only ever running fixes on versions Nitro was tested against.
+- New report at the end of loading: every fix, whether it is running, and why not when it is not.
+- New startup profiler (startupProfiler): samples the loading threads and says which mods the launch
+  time went to, including time spent waiting on the network, which is a real cause of long loads on
+  big packs and is not something Nitro can fix from the inside.
+- Resource pack indexes are now built up front on several threads when a reload starts, instead of
+  one at a time on the reload thread as each pack is first missed.
+- Any config key can be set with -Dnitro.config.<key>=<value>, which wins over the file. Keys in the
+  file that Nitro does not recognise are reported instead of ignored.
+- parallelRecipes stands down when FastSuite is installed, since FastSuite reworks the same pipeline.
+
 ## 1.0.3 (2026-09-08)
 
 First public build. Same fixes as 1.0.2, packaged for release.

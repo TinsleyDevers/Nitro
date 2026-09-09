@@ -101,31 +101,32 @@ public final class AsyncJeiStarter {
      * Entry point from the mixin. Returns normally after scheduling the background work;
      * mirrors JeiStarter.start() up to and including ingredient registration.
      */
-    public static void start(JeiStarter starter) {
+    public static boolean start(JeiStarter starter) {
         // Serialize restarts as well as worker jobs: registration touches JEI global state.
         if (startupPending) {
             int requestedGeneration = GENERATION.get();
             executor().execute(() -> Minecraft.getInstance().execute(() -> {
                 if (requestedGeneration == GENERATION.get()) start(starter);
             }));
-            return;
+            return true;
         }
         JeiStarterAccessor acc = (JeiStarterAccessor) (Object) starter;
         if (acc.nitro$isRunning()) {
             Nitro.LOGGER.error("Failed to start JEI, it is already running.");
-            return;
+            return true;
         }
         Minecraft minecraft = Minecraft.getInstance();
         ClientLevel level = minecraft.level;
         if (level == null) {
             Nitro.LOGGER.error("Failed to start JEI, there is no Minecraft client level.");
-            return;
+            return true;
         }
-        // Resolve compatibility-sensitive classes before spending minutes registering recipes.
-        try {
-            Class.forName("mezz.jei.library.transfer.BasicRecipeTransferHandler", true, starter.getClass().getClassLoader());
-        } catch (ClassNotFoundException e) {
-            throw new IllegalStateException("Nitro: installed JEI lacks its basic transfer handler", e);
+        // Nothing has been touched yet, so this is the last point at which handing the whole job
+        // back to JEI costs nothing. The config allows a range of JEI versions rather than the one
+        // this was written against, so check that the pieces this re-implementation reaches into
+        // are all still there before committing to it.
+        if (!jeiInternalsPresent(starter.getClass().getClassLoader())) {
+            return false;
         }
         RegistryAccess registryAccess = level.registryAccess();
         RegistryUtil.setRegistryAccess(registryAccess);
@@ -217,7 +218,10 @@ public final class AsyncJeiStarter {
                     recipeManager, ingredientManager, jeiHelpers, screenHelper, recipeTransferManager, editModeConfig,
                     configManager, localStops, totalTime));
             } catch (Throwable t) {
-                if (t instanceof Error) {
+                // A LinkageError here means the installed JEI is not shaped the way this
+                // re-implementation expects, which the fallback handles like any other failure.
+                // Anything else at Error level (out of memory, stack overflow) is not ours to swallow.
+                if (t instanceof Error && !(t instanceof LinkageError)) {
                     minecraft.execute(() -> {
                         startupPending = false;
                         discard(localStops, "unrecoverable class transformation or JVM error");
@@ -229,6 +233,59 @@ public final class AsyncJeiStarter {
                 minecraft.execute(() -> fallback(starter, acc, generation, localStops));
             }
         });
+        return true;
+    }
+
+    /**
+     * JEI internals this class constructs directly. The public JEI API is stable across a minor
+     * line; these are not, so they are what decides whether the async path is safe to take on the
+     * installed build. A missing one means Nitro hands the startup back to JEI untouched, which
+     * costs the player the freeze but never a crash.
+     */
+    private static final String[] REQUIRED_JEI_CLASSES = {
+        "mezz.jei.library.transfer.BasicRecipeTransferHandler",
+        "mezz.jei.library.startup.StartData",
+        "mezz.jei.library.startup.PluginAwareJeiFeatures",
+        "mezz.jei.library.load.PluginLoader",
+        "mezz.jei.library.load.PluginCaller",
+        "mezz.jei.library.load.registration.RuntimeRegistration",
+        "mezz.jei.library.config.EditModeConfig",
+        "mezz.jei.library.helpers.CodecHelper",
+        "mezz.jei.library.focus.FocusFactory",
+        "mezz.jei.library.color.ColorHelper",
+        "mezz.jei.library.ingredients.IngredientManager",
+        "mezz.jei.library.ingredients.subtypes.SubtypeManager",
+        "mezz.jei.library.recipes.RecipeManager",
+        "mezz.jei.library.runtime.JeiHelpers",
+        "mezz.jei.library.runtime.JeiRuntime",
+        "mezz.jei.library.plugins.vanilla.VanillaPlugin",
+        "mezz.jei.common.Internal",
+        "mezz.jei.common.recipes.VanillaClientRecipeLoader",
+        "mezz.jei.common.util.RegistryUtil",
+        "mezz.jei.common.platform.Services",
+        "mezz.jei.api.search.ISearchStorageBuilderFactory"
+    };
+
+    private static Boolean internalsPresent;
+
+    private static boolean jeiInternalsPresent(ClassLoader loader) {
+        Boolean known = internalsPresent;
+        if (known != null) {
+            return known;
+        }
+        for (String name : REQUIRED_JEI_CLASSES) {
+            try {
+                Class.forName(name, false, loader);
+            } catch (Throwable t) {
+                Nitro.LOGGER.warn("Nitro: the installed JEI does not have {}, so its startup is left alone. "
+                    + "Nitro's async JEI startup targets the version range in jeiVersions "
+                    + "(config/nitro.properties); this build is outside what it fits.", name);
+                internalsPresent = Boolean.FALSE;
+                return false;
+            }
+        }
+        internalsPresent = Boolean.TRUE;
+        return true;
     }
 
     private static void finish(JeiStarter starter, JeiStarterAccessor acc, int generation,

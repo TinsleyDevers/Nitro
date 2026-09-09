@@ -1,0 +1,56 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Nitro
+        uses: actions/checkout@v4
+
+      # ZambieLib is a compile-time dependency resolved from the local maven
+      # repo, so it is built here before the mod is.
+      - name: Check out ZambieLib
+        uses: actions/checkout@v4
+        with:
+          repository: TinsleyDevers/ZambieLib
+          path: .zambielib
+
+      - name: Set up JDK 25 for the ZambieLib build
+        id: jdk25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Set up JDK 21
+        id: jdk21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Publish ZambieLib to the local maven repo
+        working-directory: .zambielib
+        env:
+          JAVA_HOME: ${{ steps.jdk25.outputs.path }}
+        run: chmod +x gradlew && ./gradlew :1.21.1-neoforge:publishToMavenLocal --no-daemon
+
+      - name: Build
+        env:
+          JAVA_HOME: ${{ steps.jdk21.outputs.path }}
+        run: chmod +x gradlew && ./gradlew build --no-daemon
+
+      - name: Upload the jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: nitro-jars
+          path: build/libs/*.jar
+          if-no-files-found: error

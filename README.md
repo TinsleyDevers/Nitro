@@ -10,6 +10,20 @@ world join after that from about 3:13 to about 2:30. It runs on dedicated server
 runtime (JEI, ModernFix, Puzzles Lib, JAOPCA, MoreCulling, Elysium API): each fix only activates
 when the mod it applies to is present, and every fix has a switch in `config/nitro.properties`.
 
+## Will it work on my pack
+
+The launch fixes (module resolver, Mixin, the jar handler, the class cache, the resource index) do
+not care what is installed and help any 1.21.1 NeoForge pack. The rest are fixes for specific mods,
+and those reach into those mods' private fields and methods, which is not something a mod version
+range can promise. So each one declares the fields and methods it needs and Nitro reads the class
+out of the installed jar before Mixin sees it. If the mod has changed, that one fix switches itself
+off and says so; the game starts either way. A version range is recorded per mod as well and shown
+in the log, but it does not block a fix on its own, because the class check is what actually decides
+whether a fix can work. `strictVersions=true` goes back to only running fixes on tested versions.
+
+Nitro prints one table when loading finishes listing every fix, whether it is running, and why not
+when it is not, so "is this mod doing anything on my pack" is one search in the log.
+
 ## What it fixes, and why the problems exist
 
 ### Launch: the loader itself
@@ -55,7 +69,9 @@ only method bodies are swapped for delegations to hook classes on the bootstrap 
 7. **Resource misses.** Every mod jar is a resource pack; a lookup for a file that does not exist
    asks every pack owning the namespace and each probes a zip file system. Nitro answers misses from
    an in-memory index (ModernFix's file tree when present, a walk otherwise) with a per-namespace
-   top-level directory pre-check.
+   top-level directory pre-check. Without ModernFix each index costs one walk of the pack, so they
+   are built for every pack at once on several threads when a reload starts, rather than one at a
+   time on the reload thread as each pack is first missed.
 8. **Model visibility.** ModernFix loads models lazily, but a handler that walks the whole model
    registry forces every model to load on one thread. Handlers verified to touch only their own
    models (DragonLib, VanillaBackport, Goety, Alex's Mobs) get ModernFix's SELF_AND_DEPS view, and
@@ -79,7 +95,10 @@ only method bodies are swapped for delegations to hook classes on the bootstrap 
 14. **Async JEI.** JEI's startup ran 3.5 minutes on the render thread after joining ("inventory
     freeze", 10 FPS). Only the parts that must touch client state stay on the render thread
     (~10 s); recipe registration and the search index build on a low-priority background thread,
-    with a fallback to the stock startup. Enabled only for the JEI build it was tested against.
+    with a fallback to the stock startup. This one re-implements `JeiStarter.start()` rather than
+    calling JEI's public API, so it applies to a JEI version range (`jeiVersions`, default the 19.53
+    line) and checks that JEI's internals are all present before it takes the startup over. When
+    they are not, JEI starts normally and Nitro says why in the log.
 15. **Directory packs in memory.** Packs that are folders on disk (`datapacks/`, KubeJS, Moonlight's
     `dynamic-*-pack-cache`, where the Sawmill mod keeps ~27,000 recipe files) were opened file by
     file on every data pack reload; each open costs milliseconds when antivirus inspects it (70 s
@@ -185,7 +204,28 @@ the CPU go while chunks generate:
 | `classCache` | true | keep transformed class bytes in `.nitro/classcache` and reuse them while mods, configs and launch arguments are unchanged |
 | `compatFixes` | true | load-order fix for Create Ore Excavation's KubeJS plugin |
 | `pathfindThreads` | 0 | cap Moog's Paths' background path-finding pool (0 = the mod's max(2, cores/4)); suggested 1 on a small dedicated server |
-| `startupReport` | true | log "Nitro report" timing lines |
+| `startupReport` | true | log "Nitro report" timing lines and the fix table at the end of loading |
+| `strictVersions` | false | only apply a mod-specific fix when that mod's version is one Nitro was tested against, on top of the class check that always runs |
+| `startupProfiler` | true | sample the loading threads and report where launch time went, including time spent waiting on the network |
+| `jeiVersions` | `[19.53,19.54)` | JEI version range the async startup applies to |
+
+Any key also works as a JVM argument: `-Dnitro.config.<key>=<value>` wins over the file, which is
+what you want when one launch script drives several servers, or when bisecting a problem without
+editing the file. Keys in the file that this build does not use are reported in the log and left
+alone.
+
+## What Nitro cannot fix, and what does
+
+The startup profiler exists because most of what is left after the launch patches is not Nitro's to
+fix. It samples the loading threads a few times a second and reports which mods the time went to,
+marking entries that are not mods, and it counts time spent blocking on the network separately.
+That last one is worth calling out: mods fetching supporter lists, update checks and cosmetics while
+the game loads can add minutes on a bad connection, and no amount of patching from the inside makes
+a socket read faster. [Save My Shaky Network](https://modrinth.com/mod/smsn) blocks those calls per
+mod without changing what the mods do. For worldgen speed, which Nitro does not touch,
+[Fast Noise](https://modrinth.com/mod/zfastnoise) and C2ME are the answer; for recipe matching,
+[FastSuite](https://modrinth.com/mod/fastsuite) (Nitro's experimental `parallelRecipes` stands down
+when it is installed).
 
 ## Building
 
@@ -207,15 +247,18 @@ Output: `build/libs/nitro-<version>.jar` (distributable). `build/embedded/nitro-
 
 - `agent/` - the JVM agent: `NitroAgent`, `Attach` helper, `boot.ResolverPatch` (+ `FastGraph`,
   `FastExports` = the fast algorithms), `boot.NitroBoot` (hands the Instrumentation to the
-  launcher), `boot.NitroHooks` (call targets for the loader patches).
+  launcher), `boot.NitroHooks` (call targets for the loader patches), `boot.NitroProfiler` (the
+  startup sampler; it is on the bootstrap class path so it can run before the game layer exists).
 - `launcher/` - the service-layer half: `NitroTransformationService` -> `AgentLoader` ->
   `LoaderPatches` (Mixin / SecureJarHandler retransformations), `ResourceIndexFilter`,
   `MixinConfigIndexer`, and `NitroDependencyLocator` (registers the embedded mod jar with FML,
   needed because FML refuses to load a service-layer jar as a mod a second time).
 - `src/` - the mod: `jei` (async startup), `resources.PackIndex` / `DirectoryPackCache`,
-  `client.ModelUniverse` / `NamespaceIndex` / `PuzzlesModelView`, and the mixins under `mixin/`
-  (modernfix, puzzles, jaopca, moreculling, elysium, resources, sable, hexerei, farmersdelight,
-  relics, megacells, spawn, random, telemetry), gated by `NitroMixinPlugin`.
+  `client.ModelUniverse` / `NamespaceIndex` / `PuzzlesModelView`, `compat.ModTargets` (what each fix
+  needs from the mod it patches, and the decision) and `compat.NitroReport` (the table), and the
+  mixins under `mixin/` (modernfix, puzzles, jaopca, moreculling, elysium, resources, sable,
+  hexerei, farmersdelight, relics, megacells, spawn, random, telemetry), gated by
+  `NitroMixinPlugin`.
 - `common/` - `NitroSettings`, compiled into both halves (relocated for the launcher half, since two
   modules may not export the same package).
 

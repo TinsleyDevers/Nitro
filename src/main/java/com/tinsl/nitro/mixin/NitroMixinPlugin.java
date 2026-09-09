@@ -1,7 +1,7 @@
 package com.tinsl.nitro.mixin;
 
 import com.tinsl.nitro.common.NitroSettings;
-import net.neoforged.fml.loading.FMLLoader;
+import com.tinsl.nitro.compat.ModTargets;
 import net.neoforged.fml.loading.FMLPaths;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -13,26 +13,21 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Enables/disables individual mixins based on config and on which mods are present.
+ * Decides which mixins are applied. Two things gate every fix that patches another mod: the config
+ * switch it belongs to, and {@link ModTargets}, which checks that the mod is installed and that the
+ * class Nitro patches still has the fields and methods the fix needs. Anything skipped says so in
+ * the log and in the table Nitro prints when loading finishes.
  */
 public final class NitroMixinPlugin implements IMixinConfigPlugin {
     private static final Logger LOGGER = LogManager.getLogger("Nitro");
     private NitroSettings settings;
-    private boolean jeiPresent;
+    private boolean jeiActive;
 
     @Override
     public void onLoad(String mixinPackage) {
         settings = NitroSettings.load(FMLPaths.GAMEDIR.get());
-        jeiPresent = modPresent("jei");
-        if (jeiPresent && FMLLoader.getLoadingModList().getModFileById("jei").getMods().stream()
-            .noneMatch(mod -> mod.getModId().equals("jei") && mod.getVersion().toString().equals("19.53.0.425"))) {
-            LOGGER.warn("Nitro: async JEI disabled for an untested JEI version; this build targets 19.53.0.425");
-            jeiPresent = false;
-        }
-    }
-
-    private static boolean modPresent(String id) {
-        return FMLLoader.getLoadingModList() != null && FMLLoader.getLoadingModList().getModFileById(id) != null;
+        ModTargets.configure(settings.strictVersions, settings.jeiVersions);
+        jeiActive = ModTargets.check("jei", settings.asyncJei).active();
     }
 
     @Override
@@ -42,83 +37,100 @@ public final class NitroMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
-        if (mixinClassName.contains(".telemetry.")) return settings.startupReport;
+        if (mixinClassName.contains(".telemetry.")) {
+            return settings.startupReport;
+        }
         if (mixinClassName.contains(".jei.")) {
-            boolean apply = jeiPresent && settings.asyncJei;
-            if (!apply) {
-                LOGGER.info("Nitro: skipping {} (jei present: {}, asyncJei: {})", mixinClassName, jeiPresent, settings.asyncJei);
-            }
-            return apply;
+            return jeiActive;
         }
         if (mixinClassName.endsWith("RecipeManagerMixin")) {
-            return settings.parallelRecipes;
+            if (!settings.parallelRecipes) {
+                return false;
+            }
+            String conflict = ModTargets.conflictFor("parallelRecipes");
+            if (conflict != null) {
+                ModTargets.record("parallelRecipes", ModTargets.State.OFF_CONFLICT, conflict + " handles recipes");
+                LOGGER.info("Nitro: parallelRecipes is on in the config but {} is installed and already reworks the recipe "
+                    + "pipeline, so Nitro leaves it alone.", conflict);
+                return false;
+            }
+            return true;
         }
-        if (mixinClassName.endsWith("MoonlightFastSearchPackMixin") || mixinClassName.endsWith("MoonlightCachedPackAccessor")
-            || mixinClassName.endsWith("MoonlightCacheWriteMixin")) {
-            return modPresent("moonlight") && settings.directoryPackCache;
+        if (mixinClassName.endsWith("MultiPackResourceManagerMixin")) {
+            return settings.resourceIndex;
+        }
+        if (mixinClassName.endsWith("MoonlightFastSearchPackMixin")) {
+            return ModTargets.check("moonlight.fastSearch", settings.directoryPackCache).active();
+        }
+        if (mixinClassName.endsWith("MoonlightCachedPackAccessor")) {
+            return ModTargets.check("moonlight.cachedAccessor", settings.directoryPackCache).active();
+        }
+        if (mixinClassName.endsWith("MoonlightCacheWriteMixin")) {
+            return ModTargets.check("moonlight.cacheWrite", settings.directoryPackCache).active();
         }
         if (mixinClassName.contains(".resources.")) {
             return settings.resourceIndex || settings.directoryPackCache;
         }
         if (mixinClassName.contains(".puzzles.")) {
-            return modPresent("puzzleslib");
+            return ModTargets.check("puzzleslib", true).active();
         }
         if (mixinClassName.contains(".jaopca.")) {
-            return modPresent("jaopca") && settings.jaopcaRemapFix;
+            return ModTargets.check("jaopca", settings.jaopcaRemapFix).active();
         }
         if (mixinClassName.contains(".modernfix.")) {
-            if (!modPresent("modernfix")) {
-                return false;
+            if (mixinClassName.endsWith("AttributeInternerMixin")) {
+                return ModTargets.check("modernfix.attributes", true).active();
             }
             if (mixinClassName.endsWith("ModelBakeEventHelperCacheMixin") || mixinClassName.endsWith("ModelManagerReloadMixin")) {
-                return settings.modelLocationCache;
+                // ModelManagerReloadMixin targets vanilla but only makes sense with the cache mixin.
+                return ModTargets.check("modernfix.modelCache", settings.modelLocationCache).active();
             }
-            if (mixinClassName.endsWith("AttributeInternerMixin") || mixinClassName.endsWith("ModelVisibilityIndexMixin")) {
-                return true;
+            if (mixinClassName.endsWith("ModelVisibilityIndexMixin")) {
+                return ModTargets.check("modernfix.visibilityIndex", true).active();
             }
-            return !settings.modelVisibility.isEmpty();
+            return ModTargets.check("modernfix.modelVisibility", !settings.modelVisibility.isEmpty()).active();
         }
         if (mixinClassName.contains(".spawn.")) {
             return settings.spawnFixes;
         }
         if (mixinClassName.contains(".sable.")) {
-            return modPresent("sable") && settings.worldLoadFixes;
+            return ModTargets.check("sable", settings.worldLoadFixes).active();
         }
         if (mixinClassName.contains(".megacells.")) {
-            return modPresent("megacells") && settings.worldLoadFixes
-                && FMLLoader.getLoadingModList().getModFileById("megacells").getMods().stream()
-                    .anyMatch(mod -> mod.getModId().equals("megacells") && mod.getVersion().toString().equals("4.11.0"));
+            return ModTargets.check("megacells", settings.worldLoadFixes).active();
         }
         if (mixinClassName.contains(".hexerei.")) {
-            return modPresent("hexerei") && settings.worldLoadFixes;
+            return ModTargets.check("hexerei", settings.worldLoadFixes).active();
         }
         if (mixinClassName.contains(".farmersdelight.")) {
-            return modPresent("farmersdelight") && settings.worldLoadFixes;
+            return ModTargets.check("farmersdelight", settings.worldLoadFixes).active();
         }
         if (mixinClassName.contains(".relics.")) {
-            return modPresent("relics") && settings.worldLoadFixes;
+            return ModTargets.check("relics", settings.worldLoadFixes).active();
         }
         if (mixinClassName.contains(".compat.")) {
             if (mixinClassName.endsWith("CreateOreExcavationKubePluginMixin")) {
-                return settings.compatFixes && modPresent("createoreexcavation") && modPresent("kubejs_create");
+                return settings.compatFixes && ModTargets.present("kubejs_create")
+                    && ModTargets.check("createoreexcavation", true).active();
             }
             if (mixinClassName.endsWith("MoogsPathsWorkerMixin")) {
-                return settings.pathfindThreads > 0 && modPresent("moogs_paths");
+                return ModTargets.check("moogs", settings.pathfindThreads > 0).active();
             }
             return settings.compatFixes;
         }
         if (mixinClassName.contains(".elysium.")) {
-            return modPresent("elysium_api");
+            return ModTargets.check("elysium", true).active();
         }
         if (mixinClassName.contains(".moreculling.")) {
-            return modPresent("moreculling") && settings.lazyCullingShapes;
+            return ModTargets.check("moreculling", settings.lazyCullingShapes).active();
         }
         if (mixinClassName.contains(".random.")) {
-            if (!(jeiPresent && settings.asyncJei)) {
+            // Both exist only to keep the background JEI thread quiet.
+            if (!jeiActive) {
                 return false;
             }
             if (mixinClassName.endsWith("C2meCheckedRandomMixin")) {
-                return modPresent("c2me_fixes_worldgen_threading_issues");
+                return ModTargets.check("c2me", true).active();
             }
             return true;
         }

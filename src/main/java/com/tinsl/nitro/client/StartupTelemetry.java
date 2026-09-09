@@ -19,6 +19,7 @@ import java.lang.management.ManagementFactory;
 public final class StartupTelemetry {
     private static boolean menuReported;
     private static long worldLoadStartNanos;
+    private static Runnable onMainMenu = () -> {};
 
     private StartupTelemetry() {}
 
@@ -27,7 +28,9 @@ public final class StartupTelemetry {
         Nitro.LOGGER.info("Nitro report: world connection requested");
     }
 
-    public static void register() {
+    /** @param atMainMenu run once, the first time the title screen opens */
+    public static void register(Runnable atMainMenu) {
+        onMainMenu = atMainMenu;
         NeoForge.EVENT_BUS.addListener(StartupTelemetry::onScreenOpening);
         NeoForge.EVENT_BUS.addListener(StartupTelemetry::onLoggingIn);
         NeoForge.EVENT_BUS.addListener(StartupTelemetry::onLoggingOut);
@@ -39,6 +42,7 @@ public final class StartupTelemetry {
             menuReported = true;
             long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
             Nitro.LOGGER.info("Nitro report: main menu reached {} s after JVM start", String.format("%.1f", uptime / 1000.0));
+            onMainMenu.run();
         }
         if (Minecraft.getInstance().level != null) {
             return;

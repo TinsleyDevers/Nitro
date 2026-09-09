@@ -1,6 +1,7 @@
 package com.tinsl.nitro.resources;
 
 import com.tinsl.nitro.Nitro;
+import net.minecraft.server.packs.PackResources;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.PathPackResources;
 import net.minecraft.resources.ResourceLocation;
@@ -12,12 +13,17 @@ import java.lang.invoke.MethodType;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
@@ -91,6 +97,70 @@ public final class PackIndex {
 
     public static long missesSaved() {
         return MISSES_SAVED.get();
+    }
+
+    /**
+     * Builds the indexes for a whole resource manager's packs up front, on several threads.
+     *
+     * Without ModernFix each index costs one walk of the pack's zip file system, and building them
+     * lazily means the first miss in each of a thousand packs pays for that walk on the thread that
+     * is doing the reload, one pack after another. The same work spread over the idle cores while
+     * the reload is getting started is off the critical path entirely. Nothing here changes what the
+     * index answers: a pack that is not warmed in time is still built on demand, under the same
+     * lock, exactly as before.
+     */
+    public static void warm(PackType type, List<PackResources> packs) {
+        List<PathPackResources> pending = new ArrayList<>();
+        for (PackResources pack : packs) {
+            if (pack instanceof PathPackResources path && !INDEXES.containsKey(path)) {
+                Path root = rootOf(path);
+                if (root != null && root.getFileSystem() != java.nio.file.FileSystems.getDefault()) {
+                    pending.add(path);
+                }
+            }
+        }
+        if (pending.size() < 8) {
+            return; // not enough to be worth a thread pool
+        }
+        int threads = Math.max(2, Math.min(Runtime.getRuntime().availableProcessors(), 8));
+        AtomicInteger seq = new AtomicInteger();
+        ExecutorService pool = Executors.newFixedThreadPool(threads, r -> {
+            Thread t = new Thread(r, "Nitro pack index " + seq.incrementAndGet());
+            t.setDaemon(true);
+            t.setPriority(Thread.NORM_PRIORITY - 1);
+            return t;
+        });
+        for (PathPackResources pack : pending) {
+            pool.execute(() -> {
+                try {
+                    Path root = rootOf(pack);
+                    if (root == null) {
+                        return;
+                    }
+                    synchronized (pack) {
+                        if (!INDEXES.containsKey(pack)) {
+                            INDEXES.put(pack, create(pack, root));
+                        }
+                    }
+                } catch (Throwable ignored) {
+                    // the on-demand path will build it instead
+                }
+            });
+        }
+        pool.shutdown();
+        Nitro.LOGGER.debug("Nitro: warming {} {} pack indexes on {} threads", pending.size(), type, threads);
+        WARMED.addAndGet(pending.size());
+    }
+
+    private static final AtomicLong WARMED = new AtomicLong();
+
+    public static long warmed() {
+        return WARMED.get();
+    }
+
+    /** The pack's root path, read through the interface the mixin puts on {@link PathPackResources}. */
+    private static Path rootOf(PathPackResources pack) {
+        return pack instanceof PackRoot holder ? holder.nitro$root() : null;
     }
 
     private static Index create(PathPackResources pack, Path root) {

@@ -34,12 +34,14 @@ public final class NitroTransformationService implements ITransformationService 
     public void onLoad(IEnvironment env, Set<String> otherServices) throws IncompatibleEnvironmentException {
         Path gameDir = env.getProperty(IEnvironment.Keys.GAMEDIR.get())
             .orElseGet(() -> Paths.get(".").toAbsolutePath().normalize());
-        // This adapter is deliberately limited to the pair inspected and tested. Older JEI
-        // versions still have the original injection point and must not be rewritten.
-        envelopeCompatibility = java.nio.file.Files.isRegularFile(gameDir.resolve("mods/jei-1.21.1-neoforge-19.53.0.425.jar"))
-            && java.nio.file.Files.isRegularFile(gameDir.resolve("mods/envelope-neoforge-1.21.1-0.7.5.jar"));
+        // The adapter itself only rewrites Envelope's callback when it still has the exact shape it
+        // had on 0.7.5 and returns false otherwise, so the gate here only has to answer "are both
+        // mods installed, on a JEI line the adapter was written for". Matching whole jar file names
+        // was too strict: a JEI patch bump, or a launcher that renames jars, switched it off.
+        envelopeCompatibility = hasJar(gameDir, "envelope-") && hasJar(gameDir, "jei-1.21.1-neoforge-19.53.");
         try {
             NitroSettings settings = NitroSettings.load(gameDir);
+            reportConfigSources(settings);
             if (!settings.resolverPatch && !settings.loaderPatches) {
                 LOGGER.info("Nitro: JVM agent disabled in config (resolverPatch=false, loaderPatches=false)");
                 return;
@@ -52,8 +54,38 @@ public final class NitroTransformationService implements ITransformationService 
             if (inst != null && settings.loaderPatches) {
                 LoaderPatches.apply(inst, gameDir, settings.classCache);
             }
+            if (inst != null && settings.startupProfiler && settings.startupReport) {
+                nitro.agent.boot.NitroProfiler.start();
+            }
         } catch (Throwable t) {
             LOGGER.warn("Nitro: early launch patches failed; continuing without them", t);
+        }
+    }
+
+    /** @return true when the mods folder holds a jar whose name starts with {@code prefix}. */
+    private static boolean hasJar(Path gameDir, String prefix) {
+        Path mods = gameDir.resolve("mods");
+        if (!java.nio.file.Files.isDirectory(mods)) {
+            return false;
+        }
+        try (java.util.stream.Stream<Path> files = java.nio.file.Files.list(mods)) {
+            return files.anyMatch(p -> {
+                String name = p.getFileName().toString();
+                return name.endsWith(".jar") && name.startsWith(prefix);
+            });
+        } catch (java.io.IOException e) {
+            return false;
+        }
+    }
+
+    /** Says out loud when a setting did not come from the config file, and flags keys we do not know. */
+    private static void reportConfigSources(NitroSettings settings) {
+        if (!settings.overriddenKeys.isEmpty()) {
+            LOGGER.info("Nitro: config overridden on the command line: {}", String.join(", ", settings.overriddenKeys));
+        }
+        if (!settings.unknownKeys.isEmpty()) {
+            LOGGER.info("Nitro: config/nitro.properties has keys this Nitro build does not use: {}. "
+                + "They are left alone; delete them if they came from an older version.", String.join(", ", settings.unknownKeys));
         }
     }
 

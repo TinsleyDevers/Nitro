@@ -5,7 +5,7 @@ issueTrackerURL = "https://github.com/TinsleyDevers/Nitro/issues"
 
 [[mods]]
 modId = "nitro"
-version = "1.0.3"
+version = "1.1.0"
 displayName = "Nitro"
 logoFile = "icon.png"
 logoBlur = false

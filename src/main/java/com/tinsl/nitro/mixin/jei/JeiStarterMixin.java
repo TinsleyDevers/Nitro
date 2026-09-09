@@ -14,8 +14,12 @@ public abstract class JeiStarterMixin {
         if (AsyncJeiStarter.isBypassed()) {
             return;
         }
-        AsyncJeiStarter.start((JeiStarter) (Object) this);
-        ci.cancel();
+        // Only cancel JEI's own start when Nitro has actually taken the job on. It declines when the
+        // installed JEI is not shaped the way the re-implementation needs, and then JEI starts
+        // normally, exactly as if Nitro were not installed.
+        if (AsyncJeiStarter.start((JeiStarter) (Object) this)) {
+            ci.cancel();
+        }
     }
 
     @Inject(method = "stop", at = @At("HEAD"))

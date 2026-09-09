@@ -34,8 +34,13 @@ import java.util.Map;
  * </ul>
  */
 @Mixin(PathPackResources.class)
-public abstract class PathPackResourcesMixin {
+public abstract class PathPackResourcesMixin implements com.tinsl.nitro.resources.PackRoot {
     @Shadow @Final private Path root;
+
+    @Override
+    public Path nitro$root() {
+        return this.root;
+    }
 
     @Unique
     private static Boolean nitro$dirCacheEnabled;

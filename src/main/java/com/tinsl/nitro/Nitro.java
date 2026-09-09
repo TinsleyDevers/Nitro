@@ -2,6 +2,7 @@ package com.tinsl.nitro;
 
 import com.tinsl.nitro.client.StartupTelemetry;
 import com.tinsl.nitro.common.NitroSettings;
+import com.tinsl.nitro.compat.NitroReport;
 import com.tinsl.zambielib.util.Mods;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
@@ -32,10 +33,27 @@ public final class Nitro {
         long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
         LOGGER.info("Nitro {} constructed at JVM uptime {} s with ZambieLib {} (resolverPatch={}, asyncJei={}, parallelRecipes={})",
             container.getModInfo().getVersion(), uptime / 1000, Mods.version("zambielib"), resolverStatus(), settings.asyncJei, settings.parallelRecipes);
-        if (FMLEnvironment.dist.isClient() && settings.startupReport) {
-            StartupTelemetry.register();
+        String version = container.getModInfo().getVersion().toString();
+        boolean client = FMLEnvironment.dist.isClient();
+        if (client && settings.startupReport) {
+            // On a client the report waits for the main menu: the resource reload is still running
+            // when loading "completes", and its numbers are half the point of the report.
+            StartupTelemetry.register(() -> report(settings, version));
         }
-        modBus.addListener(net.neoforged.fml.event.lifecycle.FMLLoadCompleteEvent.class, event -> markLoadComplete());
+        modBus.addListener(net.neoforged.fml.event.lifecycle.FMLLoadCompleteEvent.class, event -> {
+            markLoadComplete();
+            if (!client && settings.startupReport) {
+                report(settings, version);
+            }
+        });
+    }
+
+    private static void report(NitroSettings settings, String version) {
+        try {
+            NitroReport.print(settings, version);
+        } catch (Throwable t) {
+            LOGGER.warn("Nitro: could not print the startup report", t);
+        }
     }
 
     /**

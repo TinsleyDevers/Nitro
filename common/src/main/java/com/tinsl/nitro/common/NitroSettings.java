@@ -7,11 +7,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Nitro configuration. A plain properties file is used (config/nitro.properties) because part of
@@ -20,9 +22,15 @@ import java.util.Set;
  * This class is deliberately dependency free: it is compiled into both the early launcher jar
  * and the embedded mod jar. Keys that are missing from an existing file (older Nitro version) are
  * appended with their documentation and default, so upgrades pick up new features automatically.
+ *
+ * Any key can also be set on the command line with {@code -Dnitro.config.<key>=<value>}, which wins
+ * over the file. That is meant for server operators who want one launch script to override a shared
+ * config, and for bisecting a problem without editing the file.
  */
 public final class NitroSettings {
     public static final String FILE_NAME = "nitro.properties";
+    /** Prefix for the JVM system property form of every key. */
+    public static final String OVERRIDE_PREFIX = "nitro.config.";
 
     /** Mods whose model-bake handlers were verified to only touch their own models; always safe to restrict. */
     public static final Set<String> BUILTIN_MODEL_VISIBILITY = Set.of("dragonlib", "vanillabackport", "goety", "alexsmobs");
@@ -65,6 +73,18 @@ public final class NitroSettings {
     public final boolean classCache;
     /** Cap for Moog's Paths' background path-finding threads; 0 keeps the mod's own max(2, cores/4). */
     public final int pathfindThreads;
+    /** Only apply a mod-specific fix when that mod's version is one Nitro was tested against. */
+    public final boolean strictVersions;
+    /** Sample the loading threads during launch and report where the time went. */
+    public final boolean startupProfiler;
+    /** Version range of JEI that the asynchronous startup is applied to. */
+    public final String jeiVersions;
+    /** Keys found in the config file that Nitro does not know; reported once by the caller. */
+    public final List<String> unknownKeys;
+    /** Keys whose value came from a -Dnitro.config.* system property instead of the file. */
+    public final List<String> overriddenKeys;
+
+    private final List<String> overrides = new ArrayList<>();
 
     private NitroSettings(Properties p) {
         this.resolverPatch = bool(p, "resolverPatch", true);
@@ -91,10 +111,46 @@ public final class NitroSettings {
         this.compatFixes = bool(p, "compatFixes", true);
         this.classCache = bool(p, "classCache", true);
         this.pathfindThreads = integer(p, "pathfindThreads", 0);
+        this.strictVersions = bool(p, "strictVersions", false);
+        this.startupProfiler = bool(p, "startupProfiler", true);
+        this.jeiVersions = string(p, "jeiVersions", "[19.53,19.54)");
+        this.overriddenKeys = List.copyOf(overrides);
+        this.unknownKeys = unknown(p);
     }
 
-    private static Set<String> list(Properties p, String key, String def) {
-        String v = p.getProperty(key, def);
+    /** Keys present in the file that no Nitro version in this build knows about. */
+    private static List<String> unknown(Properties p) {
+        Set<String> known = new LinkedHashSet<>();
+        for (String[] e : ENTRIES) {
+            known.add(e[0]);
+        }
+        Set<String> found = new TreeSet<>();
+        for (String key : p.stringPropertyNames()) {
+            if (!known.contains(key)) {
+                found.add(key);
+            }
+        }
+        return List.copyOf(found);
+    }
+
+    /**
+     * Value of a key, with {@code -Dnitro.config.<key>} winning over the file. Every override is
+     * recorded so the caller can say which settings did not come from the file.
+     */
+    private String raw(Properties p, String key) {
+        String override = System.getProperty(OVERRIDE_PREFIX + key);
+        if (override != null && !override.isBlank()) {
+            overrides.add(key + "=" + override.trim());
+            return override.trim();
+        }
+        return p.getProperty(key);
+    }
+
+    private Set<String> list(Properties p, String key, String def) {
+        String v = raw(p, key);
+        if (v == null) {
+            v = def;
+        }
         Set<String> out = new LinkedHashSet<>();
         for (String s : v.split(",")) {
             String t = s.trim();
@@ -103,6 +159,11 @@ public final class NitroSettings {
             }
         }
         return Collections.unmodifiableSet(out);
+    }
+
+    private String string(Properties p, String key, String def) {
+        String v = raw(p, key);
+        return v == null || v.isBlank() ? def : v.trim();
     }
 
     private static volatile NitroSettings cached;
@@ -200,7 +261,23 @@ public final class NitroSettings {
             # (mods construct in parallel), registering the wrapper twice and failing KubeJS ("Wrapper ... already exists").
             # The flag is derived from the mod list right before it is read."""},
         new String[] {"startupReport", "true", """
-            # Print a phase timing summary (main menu, world load, JEI) to the log."""}
+            # Print a phase timing summary (main menu, world load, JEI) to the log, plus one table at the end of
+            # loading that lists every Nitro fix and whether it is active, with the reason when it is not."""},
+        new String[] {"strictVersions", "false", """
+            # Every fix that patches another mod is checked twice: the target class must still have the fields and
+            # methods the fix needs (a mismatch always skips the fix, which is what keeps Nitro from crashing on a
+            # mod version it has not seen), and the mod's version is compared against the range Nitro was tested
+            # against. With this off, a version outside that range still gets the fix as long as the class matches,
+            # and Nitro logs that it is doing so. Turn it on to only ever run fixes on tested versions."""},
+        new String[] {"startupProfiler", "true", """
+            # Sample the loading threads a few times a second during launch and report which mods the time went to,
+            # including time spent waiting on the network. Costs well under a percent of launch and tells you what is
+            # slow that Nitro cannot fix. Reported once when loading completes, alongside the fix table."""},
+        new String[] {"jeiVersions", "[19.53,19.54)", """
+            # JEI version range the asynchronous startup applies to, as a maven range. The async startup re-implements
+            # JEI's own start method, so it is tied to JEI's internals rather than to its public API. Widen this at your
+            # own risk: if the re-implementation does not fit the installed JEI, Nitro falls back to JEI's normal
+            # startup and logs it, so the worst case is the freeze you would have had anyway."""}
     );
 
     private static void writeDefaults(Path file) throws IOException {
@@ -228,13 +305,13 @@ public final class NitroSettings {
         }
     }
 
-    private static boolean bool(Properties p, String key, boolean def) {
-        String v = p.getProperty(key);
+    private boolean bool(Properties p, String key, boolean def) {
+        String v = raw(p, key);
         return v == null ? def : Boolean.parseBoolean(v.trim());
     }
 
-    private static int integer(Properties p, String key, int def) {
-        String v = p.getProperty(key);
+    private int integer(Properties p, String key, int def) {
+        String v = raw(p, key);
         if (v == null) {
             return def;
         }

@@ -8,6 +8,7 @@
   "mixins": [
     "RecipeManagerMixin",
     "resources.PathPackResourcesMixin",
+    "resources.MultiPackResourceManagerMixin",
     "resources.MoonlightFastSearchPackMixin",
     "resources.MoonlightCachedPackAccessor",
     "resources.MoonlightCacheWriteMixin",
