@@ -5,10 +5,11 @@ cuts startup time and world join time on very high mod counts. Built for NeoForg
 measured on a 1017-mod pack: launch to world screen went from 6:53 (original) to about 2:00, and the
 world join after that from about 3:13 to about 2:30. It runs on dedicated servers too.
 
-[Download on Modrinth](https://modrinth.com/mod/nitro-performance). Drop the jar into `mods/` next to
-[ZambieLib](https://modrinth.com/mod/zambielib), which it requires. Everything else is optional at
+[Download on CurseForge](https://www.curseforge.com/minecraft/mc-mods/nitro-performance). Drop the jar into `mods/` next to
+[ZambieLib](https://www.curseforge.com/minecraft/mc-mods/zambielibb), which it requires. Everything else is optional at
 runtime (JEI, ModernFix, Puzzles Lib, JAOPCA, MoreCulling, Elysium API): each fix only activates
 when the mod it applies to is present, and every fix has a switch in `config/nitro.properties`.
+(Modrinth coming soon...)
 
 ## Will it work on my pack
 
