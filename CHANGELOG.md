@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.2.0 (2026-09-29)
+
+Nitro no longer loads its JVM agent by itself. Up to now it started a short helper Java process
+that attached the agent to the running game, because Java does not let a program attach an agent
+to itself. That step is gone: the agent only runs when you add it to the JVM arguments, which is
+the way Java intends agents to be granted.
+
+- Add `-javaagent:<your instance>/.nitro/nitro-agent.jar` to the instance's JVM arguments once to
+  turn the launch patches on (module resolver, Mixin and jar handler patches, class cache). Nitro
+  writes that file on the first launch and prints the exact line in the log. On the client it also
+  shows it once on the main menu, with a button that copies it and one that stops the reminder
+  (agentNotice in the config).
+- The file is a small loader that never changes. It finds the Nitro jar in the mods folder and runs
+  the agent from it, so updating Nitro does not mean editing the argument again. With Nitro removed
+  it does nothing.
+- With the argument, launch is the same as before and a little quicker to start: the agent is up in
+  about 60 ms instead of the 240 ms the helper process took, and Java no longer prints the
+  "agent loaded dynamically" warnings. Without it, everything that runs as a normal mod still works.
+- The startup report says what is off without the agent and what line turns it on.
+- Leftovers from the old attach (the hashed agent copies and attach.log in .nitro) are cleaned up.
+- The jar starts no processes and contains no attach code.
+
+This release also carries everything from 1.1.0, which did not go out on the sites: every fix that
+patches another mod checks the installed class before applying, async JEI works on the whole
+JEI 19.53 line again (it had switched itself off on 19.53.0.426), the end-of-loading report, the
+startup profiler, parallel pack index warm-up and -Dnitro.config.* overrides.
+
 ## 1.1.0 (2026-09-09)
 
 Nitro used to decide whether to patch another mod by asking "is it installed". That is not enough:

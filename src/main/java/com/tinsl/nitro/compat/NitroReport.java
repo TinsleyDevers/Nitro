@@ -37,11 +37,16 @@ public final class NitroReport {
 
         lines.add("  launch");
         lines.add(row("module resolver", resolverState()));
+        String noAgent = "off, needs the agent in the JVM arguments";
         lines.add(row("loader patches", agentLoaded()
             ? (settings.loaderPatches ? "active" : "off in config")
-            : "off, JVM agent not loaded"));
+            : noAgent));
         lines.add(row("class cache", !settings.classCache ? "off in config"
-            : agentLoaded() ? "active" : "off, JVM agent not loaded"));
+            : agentLoaded() ? "active" : noAgent));
+        String argument = System.getProperty("nitro.agentArgument");
+        if (!agentLoaded() && argument != null) {
+            lines.add(row("to turn these on", "add " + argument));
+        }
 
         lines.add("  resources");
         long misses = PackIndex.missesSaved();
@@ -92,7 +97,10 @@ public final class NitroReport {
             return "not needed, Java " + Runtime.version().feature() + " already has the fast one";
         }
         String error = System.getProperty("nitro.resolverPatchError");
-        return error == null ? "off in config" : "NOT applied: " + error;
+        if (error != null) {
+            return "NOT applied: " + error;
+        }
+        return agentLoaded() ? "off in config" : "off, needs the agent in the JVM arguments";
     }
 
     private static boolean agentLoaded() {

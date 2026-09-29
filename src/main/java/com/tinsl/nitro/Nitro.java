@@ -35,6 +35,9 @@ public final class Nitro {
             container.getModInfo().getVersion(), uptime / 1000, Mods.version("zambielib"), resolverStatus(), settings.asyncJei, settings.parallelRecipes);
         String version = container.getModInfo().getVersion().toString();
         boolean client = FMLEnvironment.dist.isClient();
+        if (client) {
+            com.tinsl.nitro.client.AgentNotice.register(settings);
+        }
         if (client && settings.startupReport) {
             // On a client the report waits for the main menu: the resource reload is still running
             // when loading "completes", and its numbers are half the point of the report.

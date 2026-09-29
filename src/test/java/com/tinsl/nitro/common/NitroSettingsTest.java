@@ -83,4 +83,17 @@ class NitroSettingsTest {
         assertEquals(0, settings.pathfindThreads);
         assertEquals(10, settings.asyncJeiPriority, "priority is clamped to the valid thread range");
     }
+
+    @Test
+    void saveChangesOneKeyAndKeepsTheRest(@TempDir Path gameDir) throws IOException {
+        NitroSettings.load(gameDir);
+        Path file = gameDir.resolve("config").resolve(NitroSettings.FILE_NAME);
+        String before = Files.readString(file);
+        NitroSettings.save(gameDir, "agentNotice", "false");
+        String after = Files.readString(file);
+        assertTrue(after.contains("agentNotice=false"));
+        assertFalse(after.contains("agentNotice=true"));
+        assertEquals(before.lines().count(), after.lines().count(), "no lines added or lost");
+        assertTrue(after.contains("# Back-port the JDK 25"), "comments are kept");
+    }
 }

@@ -49,7 +49,6 @@ public final class NitroTransformationService implements ITransformationService 
             if (!settings.resolverPatch && Runtime.version().feature() < 24) {
                 LOGGER.info("Nitro: module resolver patch disabled in config; only loader patches will be applied");
             }
-            System.setProperty("nitro.resolverPatch", String.valueOf(settings.resolverPatch));
             Instrumentation inst = AgentLoader.load(gameDir);
             if (inst != null && settings.loaderPatches) {
                 LoaderPatches.apply(inst, gameDir, settings.classCache);

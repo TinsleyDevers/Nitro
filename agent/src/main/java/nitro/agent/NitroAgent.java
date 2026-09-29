@@ -1,21 +1,24 @@
 package nitro.agent;
 
+import java.io.InputStream;
 import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
-import java.util.jar.JarFile;
 
 /**
- * Entry point of the Nitro JVM agent.
+ * The Nitro JVM agent. It only ever runs because the player added
+ * {@code -javaagent:<game dir>/.nitro/nitro-agent.jar} to the JVM arguments: that stub (see
+ * {@code nitro.stub.NitroAgentStub}) puts this jar on the bootstrap class path and calls
+ * {@link #install}. Nitro never attaches an agent to the game by itself.
  *
- * The agent is loaded into the game JVM (either dynamically through the attach API by
- * {@code com.tinsl.nitro.launch.AgentLoader}, or statically via {@code -javaagent}) and does two
- * things:
+ * It does two things:
  * <ol>
- *   <li>Publishes its {@link Instrumentation} through {@code nitro.agent.boot.NitroBoot} so the
+ *   <li>Publishes the {@link Instrumentation} through {@code nitro.agent.boot.NitroBoot} so the
  *       launcher half can patch loader-level classes (Mixin, Secure Jar Handler).</li>
  *   <li>On Java 21-23 installs a hot patch for {@code java.lang.module.Resolver#makeGraph}.
  *       JDK 21's implementation of that method is O(n^3) in the number of automatic modules. Every
@@ -31,23 +34,15 @@ public final class NitroAgent {
 
     private NitroAgent() {}
 
-    public static void premain(String args, Instrumentation inst) {
-        install(inst);
-    }
-
-    public static void agentmain(String args, Instrumentation inst) {
-        install(inst);
-    }
-
-    private static void install(Instrumentation inst) {
+    /**
+     * @param inst    the Instrumentation the JVM gave the stub
+     * @param gameDir the game directory, for reading config/nitro.properties
+     */
+    public static void install(Instrumentation inst, String gameDir) {
         if (Boolean.getBoolean(PROP_LOADED)) {
             return;
         }
         try {
-            Path self = Paths.get(NitroAgent.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-            // Make the boot classes visible to java.base (and everything else) by putting them on the
-            // bootstrap search path.
-            inst.appendToBootstrapClassLoaderSearch(new JarFile(self.toFile()));
             Class<?> boot = Class.forName("nitro.agent.boot.NitroBoot", true, null);
             boot.getField("INSTRUMENTATION").set(null, inst);
             boot.getField("JAVA_FEATURE").setInt(null, Runtime.version().feature());
@@ -55,15 +50,14 @@ public final class NitroAgent {
         } catch (Throwable t) {
             System.setProperty(PROP_ERROR, "agent bootstrap failed: " + t);
             System.err.println("[Nitro] Failed to bootstrap agent: " + t);
-            t.printStackTrace();
             return;
         }
 
         if (Runtime.version().feature() >= 24 || Boolean.getBoolean(PROP_PATCHED)) {
             return; // the JDK already has the fast resolver (or we were loaded twice)
         }
-        if (!Boolean.parseBoolean(System.getProperty("nitro.resolverPatch", "true"))) {
-            return; // disabled in config/nitro.properties (the launcher mirrors the setting into this property)
+        if (!resolverPatchEnabled(gameDir)) {
+            return;
         }
         try {
             Class<?> patch = Class.forName("nitro.agent.boot.ResolverPatch", true, null);
@@ -91,7 +85,34 @@ public final class NitroAgent {
             }
             System.setProperty(PROP_ERROR, cause.toString());
             System.err.println("[Nitro] Failed to install module resolver patch: " + cause);
-            cause.printStackTrace();
         }
+    }
+
+    /**
+     * The agent runs before any of Nitro's other code, so it reads the one setting it needs itself:
+     * {@code -Dnitro.config.resolverPatch} first, then {@code resolverPatch} in the config file,
+     * defaulting to on like the rest of Nitro.
+     */
+    private static boolean resolverPatchEnabled(String gameDir) {
+        String override = System.getProperty("nitro.config.resolverPatch");
+        if (override != null && !override.isBlank()) {
+            return Boolean.parseBoolean(override.trim());
+        }
+        try {
+            Path file = Paths.get(gameDir, "config", "nitro.properties");
+            if (Files.isRegularFile(file)) {
+                Properties p = new Properties();
+                try (InputStream in = Files.newInputStream(file)) {
+                    p.load(in);
+                }
+                String v = p.getProperty("resolverPatch");
+                if (v != null) {
+                    return Boolean.parseBoolean(v.trim());
+                }
+            }
+        } catch (Throwable ignored) {
+            // unreadable config: default
+        }
+        return true;
     }
 }

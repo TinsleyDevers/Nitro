@@ -1,13 +1,13 @@
 {
     "name": "Nitro",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "releaseType": "release",
     "changelog": "CHANGELOG.md",
     "modrinth": {
         "projectId": "nitro-performance"
     },
     "curseforge": {
-        "projectId": ""
+        "projectId": "1687689"
     },
     "github": {
         "repo": "TinsleyDevers/Nitro"

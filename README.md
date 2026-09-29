@@ -11,6 +11,35 @@ runtime (JEI, ModernFix, Puzzles Lib, JAOPCA, MoreCulling, Elysium API): each fi
 when the mod it applies to is present, and every fix has a switch in `config/nitro.properties`.
 (Modrinth coming soon...)
 
+## One JVM argument for the launch patches
+
+Nitro's launch patches (the module resolver, Mixin, the jar handler, the class cache) have to run
+before any mod loads, and the only way Java allows that is a JVM agent. Nitro never loads one by
+itself: Java reserves agents for code the player names on the command line, and that is the only
+way Nitro's agent runs. On the first launch Nitro writes a small file and prints the line to add,
+in the log and on a one-time screen on the main menu with a copy button:
+
+```
+-javaagent:<your instance>/.nitro/nitro-agent.jar
+```
+
+Add it to this instance's JVM arguments (Prism: Edit instance, Settings, Java arguments; servers:
+the start script, before `-jar` or `@user_jvm_args.txt`), then restart. Once is enough. That file
+is a small loader that never changes: it finds whichever Nitro jar is in your mods folder and runs
+the agent inside it, so updating Nitro does not touch the argument. If Nitro is removed, it does
+nothing and the game starts normally. Two things to know:
+
+- A JVM will not start if a `-javaagent` file is missing, so keep `.nitro/nitro-agent.jar` while the
+  argument is set. The rest of `.nitro` is cache and safe to delete.
+- On a launcher where JVM arguments apply to every instance, the loader checks which game is starting
+  and does nothing for instances without Nitro, but the file itself still has to exist, so point the
+  argument at a copy in a folder you will not delete.
+
+Without the argument, everything else in Nitro (resources, model loading, async JEI, the world join
+fixes) still runs. Java 24 and later already have the module resolver fix built in, so on those the
+argument adds the loader patches and class cache only. NeoForge 1.21.1 booted fine on Java 25 in
+testing, but that is a smaller test than a 1000 mod pack, so treat it as worth a try, not a promise.
+
 ## Will it work on my pack
 
 The launch fixes (module resolver, Mixin, the jar handler, the class cache, the resource index) do
@@ -32,8 +61,8 @@ when it is not, so "is this mod doing anything on my pack" is one search in the 
 1. **JDK module resolver, `makeGraph`.** Every mod jar without a `module-info` is an automatic
    module. JDK 21 propagates their read edges with three nested loops: minutes of silence before any
    mod class loads (2:16 to 6:04 on this pack). JDK 25 fixed it with a one-line guard. Nitro's
-   embedded JVM agent (attached by a 200 ms helper JVM, because HotSpot refuses self-attach)
-   retransforms the method to the JDK 25 algorithm. 0.4 s now.
+   JVM agent (from the `-javaagent` argument above) retransforms the method to the JDK 25
+   algorithm. 0.4 s now.
 2. **JDK module resolver, `checkExportSuppliers`.** The split-package check builds a
    package-to-exporter map per module by walking every module it reads: ~1000 x 200k insertions,
    another 3 s. Replaced with an equivalent linear check (same exception on a real split package;
@@ -62,7 +91,7 @@ when it is not, so "is this mod doing anything on my pack" is one search in the 
    memory-mapped, so nothing is copied that is not used.
 
 All six are applied through `java.lang.instrument` retransformation from Nitro's ModLauncher
-transformation service, i.e. before the game module layer exists. Class shapes are unchanged;
+transformation service, i.e. before the game module layer exists, and all six need the agent. Class shapes are unchanged;
 only method bodies are swapped for delegations to hook classes on the bootstrap class path.
 
 ### Launch: resource reload
@@ -209,6 +238,7 @@ the CPU go while chunks generate:
 | `strictVersions` | false | only apply a mod-specific fix when that mod's version is one Nitro was tested against, on top of the class check that always runs |
 | `startupProfiler` | true | sample the loading threads and report where launch time went, including time spent waiting on the network |
 | `jeiVersions` | `[19.53,19.54)` | JEI version range the async startup applies to |
+| `agentNotice` | true | show the one-time main menu screen with the JVM argument when the agent is missing |
 
 Any key also works as a JVM argument: `-Dnitro.config.<key>=<value>` wins over the file, which is
 what you want when one launch script drives several servers, or when bisecting a problem without
@@ -238,7 +268,9 @@ gradlew build
 ```
 
 Output: `build/libs/nitro-<version>.jar` (distributable). `build/embedded/nitro-mod-<version>.jar`
-(inner mod jar) and `agent/build/embedded/nitro-agent.jar` are the two halves it embeds.
+(inner mod jar), `agent/build/embedded/nitro-agent.jar` (the agent) and
+`agent/build/embedded/nitro-agent-stub*.jar` (the loader players point `-javaagent` at) are what
+it embeds.
 
 ## License
 
@@ -246,7 +278,9 @@ Output: `build/libs/nitro-<version>.jar` (distributable). `build/embedded/nitro-
 
 ## Layout
 
-- `agent/` - the JVM agent: `NitroAgent`, `Attach` helper, `boot.ResolverPatch` (+ `FastGraph`,
+- `agent/` - the JVM agent: `stub.NitroAgentStub` (the `-javaagent` entry point; finds the Nitro jar
+  in the mods folder and loads its agent onto the bootstrap class path), `NitroAgent`,
+  `boot.ResolverPatch` (+ `FastGraph`,
   `FastExports` = the fast algorithms), `boot.NitroBoot` (hands the Instrumentation to the
   launcher), `boot.NitroHooks` (call targets for the loader patches), `boot.NitroProfiler` (the
   startup sampler; it is on the bootstrap class path so it can run before the game layer exists).
@@ -265,10 +299,9 @@ Output: `build/libs/nitro-<version>.jar` (distributable). `build/embedded/nitro-
 
 ## Notes
 
-- Files extracted at runtime live in `<instance>/.nitro/` and are safe to delete. Deleting
-  `.nitro/classcache` resets the transformed-class cache; it is rebuilt on the next launch.
-- If the agent cannot attach (log line `Nitro: agent attached but ...` or `agent not loaded`),
-  add `-javaagent:<instance>/.nitro/nitro-agent-<hash>.jar` to the JVM arguments.
-- JDK 21 prints three `WARNING: A Java agent has been loaded dynamically` lines on stderr. They are
-  harmless; `-XX:+EnableDynamicAgentLoading` silences them.
+- Files extracted at runtime live in `<instance>/.nitro/` and are safe to delete, except
+  `nitro-agent.jar` while the JVM argument points at it. Deleting `.nitro/classcache` resets the
+  transformed-class cache; it is rebuilt on the next launch.
+- Nitro starts no processes, makes no network connections and never attaches an agent on its own.
+  Before 1.2.0 it attached its agent through a short-lived helper JVM; that is gone.
 - Every patch logs one line when applied and one warning when skipped; nothing is silent.

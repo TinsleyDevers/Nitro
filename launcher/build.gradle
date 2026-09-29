@@ -57,13 +57,17 @@ tasks.named('test') {
  * NitroDependencyLocator, the same technique CrashAssistant uses.
  */
 tasks.named('jar', Jar) {
-    dependsOn ':agent:jar', ':jar'
+    dependsOn ':agent:jar', ':agent:stubJar', ':jar'
     archiveBaseName = 'nitro'
     archiveVersion = rootProject.version.toString()
     destinationDirectory = rootProject.layout.buildDirectory.dir('libs')
     from(project(':agent').tasks.named('jar').map { it.archiveFile }) {
         into 'META-INF/nitro'
         rename { 'nitro-agent.jar' }
+    }
+    from(project(':agent').tasks.named('stubJar').map { it.archiveFile }) {
+        into 'META-INF/nitro'
+        rename { 'nitro-agent-stub.jar' }
     }
     from(rootProject.tasks.named('jar').map { it.archiveFile }) {
         into 'META-INF/nitro'

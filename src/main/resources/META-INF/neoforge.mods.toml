@@ -5,7 +5,7 @@ issueTrackerURL = "https://github.com/TinsleyDevers/Nitro/issues"
 
 [[mods]]
 modId = "nitro"
-version = "1.1.0"
+version = "1.2.0"
 displayName = "Nitro"
 logoFile = "icon.png"
 logoBlur = false
@@ -26,6 +26,10 @@ Every fix switches on only when the mod it targets is installed, and every
 one has a switch in config/nitro.properties. Measured on a 1000-mod pack:
 launch to menu went from about 7 minutes to under 2, world join from 3
 minutes to 2. Works on dedicated servers as well.
+
+The launch patches need one line in your JVM arguments, because Java only
+allows that kind of patch when you add it yourself. Nitro shows you the line
+on the main menu. Everything else works without it.
 '''
 
 [[mixins]]

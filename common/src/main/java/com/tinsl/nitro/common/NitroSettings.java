@@ -79,6 +79,8 @@ public final class NitroSettings {
     public final boolean startupProfiler;
     /** Version range of JEI that the asynchronous startup is applied to. */
     public final String jeiVersions;
+    /** Show the main-menu notice about adding the agent to the JVM arguments. */
+    public final boolean agentNotice;
     /** Keys found in the config file that Nitro does not know; reported once by the caller. */
     public final List<String> unknownKeys;
     /** Keys whose value came from a -Dnitro.config.* system property instead of the file. */
@@ -114,6 +116,7 @@ public final class NitroSettings {
         this.strictVersions = bool(p, "strictVersions", false);
         this.startupProfiler = bool(p, "startupProfiler", true);
         this.jeiVersions = string(p, "jeiVersions", "[19.53,19.54)");
+        this.agentNotice = bool(p, "agentNotice", true);
         this.overriddenKeys = List.copyOf(overrides);
         this.unknownKeys = unknown(p);
     }
@@ -197,7 +200,8 @@ public final class NitroSettings {
         new String[] {"resolverPatch", "true", """
             # Back-port the JDK 25 module-resolver fix into JDK 21 at launch. This removes the multi-minute
             # pause between mod discovery and the first Mixin log line ("Compatibility level set to ...").
-            # Requires the game's Java to ship the jdk.attach module (the Mojang/Microsoft JDK does)."""},
+            # Needs the Nitro agent in the JVM arguments: -javaagent:<game dir>/.nitro/nitro-agent.jar
+            # (Nitro prints the exact line when it is missing). Nitro never loads the agent by itself."""},
         new String[] {"loaderPatches", "true", """
             # Patch two hot spots in the mod-loading toolchain itself through the same JVM agent:
             #  - Mixin 0.8.7 looks opcode names up with reflection for every instruction it processes (~5 CPU-seconds here).
@@ -273,12 +277,39 @@ public final class NitroSettings {
             # Sample the loading threads a few times a second during launch and report which mods the time went to,
             # including time spent waiting on the network. Costs well under a percent of launch and tells you what is
             # slow that Nitro cannot fix. Reported once when loading completes, alongside the fix table."""},
+        new String[] {"agentNotice", "true", """
+            # Show a one-time screen on the main menu when the Nitro agent is not in the JVM arguments, with the line
+            # to add and a button that copies it. Choosing "Don't show again" on that screen turns this off."""},
         new String[] {"jeiVersions", "[19.53,19.54)", """
             # JEI version range the asynchronous startup applies to, as a maven range. The async startup re-implements
             # JEI's own start method, so it is tied to JEI's internals rather than to its public API. Widen this at your
             # own risk: if the re-implementation does not fit the installed JEI, Nitro falls back to JEI's normal
             # startup and logs it, so the worst case is the freeze you would have had anyway."""}
     );
+
+    /**
+     * Changes one key in the config file in place, keeping every other line and comment as it is.
+     * The in-memory settings are not reloaded; the change applies from the next launch.
+     */
+    public static void save(Path gameDir, String key, String value) throws IOException {
+        Path file = gameDir.resolve("config").resolve(FILE_NAME);
+        if (!Files.isRegularFile(file)) {
+            writeDefaults(file);
+        }
+        List<String> lines = new ArrayList<>(Files.readAllLines(file, StandardCharsets.UTF_8));
+        boolean found = false;
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i).trim();
+            if (line.startsWith(key + "=") || line.startsWith(key + " =")) {
+                lines.set(i, key + "=" + value);
+                found = true;
+            }
+        }
+        if (!found) {
+            lines.add(key + "=" + value);
+        }
+        Files.write(file, lines, StandardCharsets.UTF_8);
+    }
 
     private static void writeDefaults(Path file) throws IOException {
         Files.createDirectories(file.getParent());

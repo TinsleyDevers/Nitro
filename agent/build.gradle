@@ -6,6 +6,17 @@ java {
     toolchain.languageVersion = JavaLanguageVersion.of(21)
 }
 
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') { useJUnitPlatform() }
+
 tasks.withType(JavaCompile).configureEach {
     // The resolver patch uses the JDK's internal copy of ASM so the agent has no dependencies at all.
     options.release = null
@@ -15,17 +26,30 @@ tasks.withType(JavaCompile).configureEach {
     ])
 }
 
+// The agent proper: loaded onto the bootstrap class path by the stub below, never given to the JVM
+// directly, so it needs no agent manifest.
 tasks.named('jar', Jar) {
     archiveBaseName = 'nitro-agent'
     // Embedded in the distributable, never shipped on its own: keep it out of build/libs.
     destinationDirectory = layout.buildDirectory.dir('embedded')
+    exclude 'nitro/stub/**'
+}
+
+// The file players point -javaagent at. It never changes between Nitro versions: it finds the Nitro
+// jar in the mods folder and loads the agent that jar carries. The JVM takes the agent's
+// capabilities from this manifest, so it is the one that declares them.
+def stubJar = tasks.register('stubJar', Jar) {
+    archiveBaseName = 'nitro-agent-stub'
+    destinationDirectory = layout.buildDirectory.dir('embedded')
+    from(sourceSets.main.output) {
+        include 'nitro/stub/**'
+    }
     manifest {
         attributes(
-            'Agent-Class': 'nitro.agent.NitroAgent',
-            'Premain-Class': 'nitro.agent.NitroAgent',
-            'Launcher-Agent-Class': 'nitro.agent.NitroAgent',
+            'Premain-Class': 'nitro.stub.NitroAgentStub',
             'Can-Retransform-Classes': 'true',
             'Can-Redefine-Classes': 'true'
         )
     }
 }
+tasks.named('assemble') { dependsOn stubJar }

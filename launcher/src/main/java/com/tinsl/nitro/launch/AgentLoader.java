@@ -3,107 +3,137 @@ package com.tinsl.nitro.launch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.lang.instrument.Instrumentation;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
+import java.nio.file.StandardCopyOption;
+import java.util.Arrays;
 
 /**
- * Gets the embedded JVM agent into the running game and hands back its {@link Instrumentation}.
+ * Picks up Nitro's JVM agent when the player has added it to the JVM arguments, and explains how to
+ * add it when they have not.
  *
- * Why a child process: HotSpot refuses to attach to itself unless
- * {@code -Djdk.attach.allowAttachSelf=true} is passed on the command line, and Nitro must work with
- * an unmodified launcher profile. A helper JVM attaches to us instead (same trick Byte Buddy uses).
+ * Nitro does not attach an agent to the game on its own. Agent access lets code rewrite any class,
+ * the JDK's included, and Java only hands that out to agents named on the command line, which is to
+ * say with the player's say-so. So the agent runs only from
+ * {@code -javaagent:<game dir>/.nitro/nitro-agent.jar}. That file is a small stub that never changes
+ * between Nitro versions (see {@code nitro.stub.NitroAgentStub}); Nitro writes it here on every launch
+ * where it is missing, so the argument can be added once and left alone.
  *
- * The agent itself (see {@code nitro.agent.NitroAgent}) publishes the Instrumentation in a
- * bootstrap-class-path holder and, on Java 21-23, installs the JDK 25 module-resolver algorithm.
+ * Without the agent everything that runs as a normal mod still works. What is lost is the part that
+ * has to run before mods load: the module resolver back-port and the loader patches.
  */
 final class AgentLoader {
     private static final Logger LOGGER = LogManager.getLogger("Nitro");
-    private static final String AGENT_RESOURCE = "/META-INF/nitro/nitro-agent.jar";
+    private static final String STUB_RESOURCE = "/META-INF/nitro/nitro-agent-stub.jar";
+    static final String STUB_FILE = "nitro-agent.jar";
     private static final String PROP_LOADED = "nitro.agentLoaded";
     private static final String PROP_PATCHED = "nitro.resolverPatched";
     private static final String PROP_ERROR = "nitro.resolverPatchError";
+    /** Set when the agent is not loaded, to the exact JVM argument that would load it. */
+    static final String PROP_HINT = "nitro.agentArgument";
 
     private static Instrumentation instrumentation;
 
     private AgentLoader() {}
 
-    /** @return the agent's Instrumentation, or null when the agent could not be loaded. */
+    /** @return the agent's Instrumentation, or null when the player has not added the agent. */
     static synchronized Instrumentation load(Path gameDir) {
         if (instrumentation != null) {
             return instrumentation;
         }
-        long start = System.nanoTime();
+        Path stub = gameDir.resolve(".nitro").resolve(STUB_FILE).toAbsolutePath().normalize();
         try {
-            if (!Boolean.getBoolean(PROP_LOADED)) {
-                attach(gameDir);
+            writeStub(stub);
+        } catch (IOException e) {
+            LOGGER.warn("Nitro: could not write {}: {}", stub, e.toString());
+        }
+        removeAttachLeftovers(gameDir.resolve(".nitro"));
+
+        if (!Boolean.getBoolean(PROP_LOADED)) {
+            // Quoted when the path has spaces (instance names often do); launchers strip the quotes.
+            String path = stub.toString();
+            String argument = "-javaagent:" + (path.indexOf(' ') >= 0 ? '"' + path + '"' : path);
+            System.setProperty(PROP_HINT, argument);
+            String error = System.getProperty(PROP_ERROR);
+            if (error != null) {
+                LOGGER.warn("Nitro: the agent is in the JVM arguments but did not start ({}). Launch patches are off.", error);
+            } else {
+                LOGGER.warn("Nitro: launch patches are off because the Nitro agent is not in the JVM arguments. "
+                    + "Nitro does not load it by itself; to turn them on, add this to your launcher's JVM arguments "
+                    + "for this instance (once; it stays valid when Nitro updates):{}    {}{}"
+                    + "Everything else in Nitro is running.", System.lineSeparator(), argument, System.lineSeparator());
             }
-            if (!Boolean.getBoolean(PROP_LOADED)) {
-                return null;
-            }
+            return null;
+        }
+        try {
             // The boot classes are in the bootstrap loader's unnamed module; our named module has
             // to read it before it may touch them (directly or reflectively).
             Class<?> boot = Class.forName("nitro.agent.boot.NitroBoot", true, null);
             AgentLoader.class.getModule().addReads(boot.getModule());
             instrumentation = (Instrumentation) boot.getField("INSTRUMENTATION").get(null);
-            long ms = (System.nanoTime() - start) / 1_000_000L;
+            String ms = System.getProperty("nitro.agentStartMillis", "?");
             int feature = Runtime.version().feature();
             if (Boolean.getBoolean(PROP_PATCHED)) {
-                LOGGER.info("Nitro: agent attached in {} ms; hot-patched java.lang.module.Resolver#makeGraph with the JDK 25 "
-                    + "algorithm (removes the multi-minute module resolution pause caused by 1000+ automatic modules)", ms);
+                LOGGER.info("Nitro: agent loaded from the JVM arguments ({} ms); hot-patched java.lang.module.Resolver#makeGraph "
+                    + "with the JDK 25 algorithm (removes the multi-minute module resolution pause caused by 1000+ automatic modules)", ms);
             } else if (feature >= 24) {
-                LOGGER.info("Nitro: agent attached in {} ms; Java {} already ships the fast module resolver", ms, feature);
+                LOGGER.info("Nitro: agent loaded from the JVM arguments ({} ms); Java {} already ships the fast module resolver", ms, feature);
             } else {
-                String err = System.getProperty(PROP_ERROR, "unknown");
-                LOGGER.warn("Nitro: agent attached but the module resolver patch was NOT applied ({}). "
-                    + "Startup will include the long module-resolution pause.", err);
+                LOGGER.warn("Nitro: agent loaded but the module resolver patch was NOT applied ({}). "
+                    + "Startup will include the long module-resolution pause.", System.getProperty(PROP_ERROR, "off in config"));
             }
             return instrumentation;
         } catch (Throwable t) {
-            LOGGER.warn("Nitro: failed to load the JVM agent; loader patches disabled", t);
+            LOGGER.warn("Nitro: agent loaded but could not be reached; loader patches disabled", t);
             return null;
         }
     }
 
-    private static void attach(Path gameDir) throws Exception {
-        Path agentJar = NitroLaunchFiles.extract(gameDir, AGENT_RESOURCE, "nitro-agent");
-        Path javaExe = Path.of(System.getProperty("java.home"), "bin",
-            System.getProperty("os.name", "").toLowerCase().contains("win") ? "java.exe" : "java");
-        if (!Files.isRegularFile(javaExe)) {
-            LOGGER.warn("Nitro: cannot find java executable at {}, agent not loaded", javaExe);
+    /**
+     * Writes the stub when it is missing or differs from the one in this jar. When the agent is running
+     * the file is held open by the JVM, and on Windows cannot be replaced; that is fine, since the stub's
+     * job does not change between versions, so a failed replace is not reported.
+     */
+    private static void writeStub(Path stub) throws IOException {
+        byte[] bytes;
+        try (InputStream in = AgentLoader.class.getResourceAsStream(STUB_RESOURCE)) {
+            if (in == null) {
+                throw new IOException("embedded resource " + STUB_RESOURCE + " missing from Nitro jar");
+            }
+            bytes = in.readAllBytes();
+        }
+        if (Files.isRegularFile(stub) && Arrays.equals(Files.readAllBytes(stub), bytes)) {
             return;
         }
-        String pid = Long.toString(ProcessHandle.current().pid());
-        Path log = agentJar.resolveSibling("attach.log");
+        Files.createDirectories(stub.getParent());
+        Path tmp = stub.resolveSibling(STUB_FILE + ".tmp");
+        Files.write(tmp, bytes);
+        try {
+            Files.move(tmp, stub, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException inUse) {
+            Files.deleteIfExists(tmp);
+        }
+    }
 
-        List<String> cmd = new ArrayList<>();
-        cmd.add(javaExe.toString());
-        cmd.add("-XX:TieredStopAtLevel=1");
-        cmd.add("-Xshare:auto");
-        cmd.add("-XX:+UseSerialGC");
-        cmd.add("-Xmx64m");
-        cmd.add("-cp");
-        cmd.add(agentJar.toString());
-        cmd.add("nitro.agent.Attach");
-        cmd.add(pid);
-        cmd.add(agentJar.toString());
-
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.redirectErrorStream(true);
-        pb.redirectOutput(log.toFile());
-        Process process = pb.start();
-        if (!process.waitFor(90, TimeUnit.SECONDS)) {
-            process.destroyForcibly();
-            LOGGER.warn("Nitro: attach helper timed out, agent not loaded (see {})", log);
+    /** Nitro 1.0 and 1.1 extracted the agent next to a log from the helper that attached it. Neither is used now. */
+    private static void removeAttachLeftovers(Path dir) {
+        if (!Files.isDirectory(dir)) {
             return;
         }
-        if (!Boolean.getBoolean(PROP_LOADED)) {
-            LOGGER.warn("Nitro: attach helper exited with code {} but the agent did not load (error: {}). Details: {}",
-                process.exitValue(), System.getProperty(PROP_ERROR, "unknown"), log);
-            LOGGER.warn("Nitro: workaround: add -javaagent:{} to the JVM arguments", agentJar);
+        try (DirectoryStream<Path> old = Files.newDirectoryStream(dir, "{nitro-agent-*.jar,attach.log}")) {
+            for (Path p : old) {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException ignored) {
+                    // in use by another running instance on the old version
+                }
+            }
+        } catch (IOException ignored) {
+            // nothing to clean
         }
     }
 }
