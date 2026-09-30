@@ -23,17 +23,20 @@ in the log and on a one-time screen on the main menu with a copy button:
 -javaagent:<your instance>/.nitro/nitro-agent.jar
 ```
 
-Add it to this instance's JVM arguments (Prism: Edit instance, Settings, Java arguments; servers:
-the start script, before `-jar` or `@user_jvm_args.txt`), then restart. Once is enough. That file
+Nitro recognises the launcher and says where the line goes in it (Prism: Edit, Settings, Java tab;
+the CurseForge app: gear icon, Minecraft, Java Settings, Additional Arguments; the Modrinth App:
+instance settings, Java and memory; servers: `user_jvm_args.txt` or the start script), then
+restart. Once is enough. That file
 is a small loader that never changes: it finds whichever Nitro jar is in your mods folder and runs
 the agent inside it, so updating Nitro does not touch the argument. If Nitro is removed, it does
 nothing and the game starts normally. Two things to know:
 
 - A JVM will not start if a `-javaagent` file is missing, so keep `.nitro/nitro-agent.jar` while the
   argument is set. The rest of `.nitro` is cache and safe to delete.
-- On a launcher where JVM arguments apply to every instance, the loader checks which game is starting
-  and does nothing for instances without Nitro, but the file itself still has to exist, so point the
-  argument at a copy in a folder you will not delete.
+- The CurseForge app has one set of JVM arguments for every profile, so there Nitro points the line at
+  a shared copy beside the `Instances` folder instead of inside one profile. The loader checks which
+  game is starting and does nothing for profiles without Nitro, and deleting a profile cannot break
+  the others.
 
 Without the argument, everything else in Nitro (resources, model loading, async JEI, the world join
 fixes) still runs. Java 24 and later already have the module resolver fix built in, so on those the

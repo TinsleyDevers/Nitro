@@ -41,7 +41,9 @@ public final class AgentNotice {
             if (argument == null || Boolean.getBoolean("nitro.agentLoaded") || System.getProperty("nitro.resolverPatchError") != null) {
                 return;
             }
-            event.setNewScreen(new NoticeScreen(title, argument));
+            String launcher = System.getProperty("nitro.agentLauncher", "your launcher");
+            String steps = System.getProperty("nitro.agentSteps", "Add it to this instance's JVM arguments and restart.");
+            event.setNewScreen(new NoticeScreen(title, argument, launcher, steps));
         });
     }
 
@@ -55,23 +57,27 @@ public final class AgentNotice {
                     + "before any mod loads, and Java only allows that for an agent you add to the JVM arguments yourself. "
                 : "Nitro's biggest launch speedups run before any mod loads, and Java only allows that for an "
                     + "agent you add to the JVM arguments yourself. ";
-            return why + "Add this line to this instance's JVM arguments in your launcher. It stays valid when Nitro updates.";
+            return why + "Add this line once; it stays valid when Nitro updates.";
         }
-        private static final Component FOOTER = Component.literal("Everything else in Nitro is already running.");
 
         private final Screen parent;
         private final Component argument;
         private final String argumentText;
         private Component status = Component.empty();
+        private final Component steps;
         private int bodyHeight;
         private int argumentHeight;
+        private int stepsHeight;
         private int panelHeight;
 
-        NoticeScreen(Screen parent, String argument) {
+        NoticeScreen(Screen parent, String argument, String launcher, String steps) {
             super(Component.literal("Nitro: one step left"));
             this.parent = parent;
             this.argumentText = argument;
             this.argument = Component.literal(argument);
+            // Capitalised for the start of the sentence ("the CurseForge app" -> "The CurseForge app").
+            String who = launcher.isEmpty() ? launcher : Character.toUpperCase(launcher.charAt(0)) + launcher.substring(1);
+            this.steps = Component.literal(who + ": " + steps + " Everything else in Nitro is already running.");
         }
 
         private int panelX() {
@@ -91,7 +97,8 @@ public final class AgentNotice {
         protected void init() {
             bodyHeight = GuiKit.drawWrapped(null, font, BODY, 0, 0, PANEL_WIDTH - 20, 0, false);
             argumentHeight = GuiKit.drawWrapped(null, font, argument, 0, 0, PANEL_WIDTH - 28, 0, false);
-            int buttonsTop = argumentTop() + argumentHeight + 8 + 6 + 10 + 8;
+            stepsHeight = GuiKit.drawWrapped(null, font, steps, 0, 0, PANEL_WIDTH - 20, 0, false);
+            int buttonsTop = argumentTop() + argumentHeight + 8 + 6 + stepsHeight + 8;
             panelHeight = buttonsTop + 20 + 10;
 
             int x = panelX() + 10;
@@ -99,7 +106,7 @@ public final class AgentNotice {
             int w = (PANEL_WIDTH - 30) / 3;
             addRenderableWidget(Button.builder(Component.literal("Copy argument"), b -> {
                 Minecraft.getInstance().keyboardHandler.setClipboard(argumentText);
-                status = Component.literal("Copied. Paste it into the JVM arguments, then restart.");
+                status = Component.literal("Copied. Paste it where described above, then restart.");
             }).bounds(x, y, w, 20).build());
             addRenderableWidget(Button.builder(Component.literal("Later"), b -> onClose())
                 .bounds(x + w + 5, y, w, 20).build());
@@ -125,7 +132,7 @@ public final class AgentNotice {
             int boxTop = y + argumentTop();
             GuiKit.drawInset(g, x + 10, boxTop, PANEL_WIDTH - 20, argumentHeight + 8);
             GuiKit.drawWrapped(g, font, argument, x + 14, boxTop + 4, PANEL_WIDTH - 28, GuiKit.WHITE, true);
-            GuiKit.drawWrapped(g, font, FOOTER, x + 10, boxTop + argumentHeight + 8 + 6, PANEL_WIDTH - 20, GuiKit.DARK_GRAY, true);
+            GuiKit.drawWrapped(g, font, steps, x + 10, boxTop + argumentHeight + 8 + 6, PANEL_WIDTH - 20, GuiKit.DARK_GRAY, true);
             // The widgets were drawn under the panel by super.render; draw them again on top of it.
             for (var child : children()) {
                 if (child instanceof Button button) {

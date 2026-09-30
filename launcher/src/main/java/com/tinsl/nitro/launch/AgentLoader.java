@@ -35,6 +35,9 @@ final class AgentLoader {
     private static final String PROP_ERROR = "nitro.resolverPatchError";
     /** Set when the agent is not loaded, to the exact JVM argument that would load it. */
     static final String PROP_HINT = "nitro.agentArgument";
+    /** Which launcher Nitro thinks started the game, and where the argument goes in it. */
+    static final String PROP_LAUNCHER = "nitro.agentLauncher";
+    static final String PROP_STEPS = "nitro.agentSteps";
 
     private static Instrumentation instrumentation;
 
@@ -46,26 +49,33 @@ final class AgentLoader {
             return instrumentation;
         }
         Path stub = gameDir.resolve(".nitro").resolve(STUB_FILE).toAbsolutePath().normalize();
+        LauncherHint hint = LauncherHint.detect(gameDir, System.getProperty("sun.java.command", ""),
+            System.getProperty("minecraft.launcher.brand"));
         try {
             writeStub(stub);
+            if (hint.shared()) {
+                // One copy every profile of this launcher can point at; see LauncherHint.
+                writeStub(hint.agentFile());
+            }
         } catch (IOException e) {
-            LOGGER.warn("Nitro: could not write {}: {}", stub, e.toString());
+            LOGGER.warn("Nitro: could not write the agent loader: {}", e.toString());
         }
         removeAttachLeftovers(gameDir.resolve(".nitro"));
 
         if (!Boolean.getBoolean(PROP_LOADED)) {
-            // Quoted when the path has spaces (instance names often do); launchers strip the quotes.
-            String path = stub.toString();
-            String argument = "-javaagent:" + (path.indexOf(' ') >= 0 ? '"' + path + '"' : path);
+            String argument = hint.argument(gameDir.toAbsolutePath().normalize());
             System.setProperty(PROP_HINT, argument);
+            System.setProperty(PROP_LAUNCHER, hint.launcher());
+            System.setProperty(PROP_STEPS, hint.steps());
             String error = System.getProperty(PROP_ERROR);
             if (error != null) {
                 LOGGER.warn("Nitro: the agent is in the JVM arguments but did not start ({}). Launch patches are off.", error);
             } else {
+                String nl = System.lineSeparator();
                 LOGGER.warn("Nitro: launch patches are off because the Nitro agent is not in the JVM arguments. "
-                    + "Nitro does not load it by itself; to turn them on, add this to your launcher's JVM arguments "
-                    + "for this instance (once; it stays valid when Nitro updates):{}    {}{}"
-                    + "Everything else in Nitro is running.", System.lineSeparator(), argument, System.lineSeparator());
+                    + "Nitro does not load it by itself. To turn them on, add this line once (it stays valid when Nitro updates):"
+                    + "{}    {}{}Started from {}: {}{}Everything else in Nitro is running.",
+                    nl, argument, nl, hint.launcher(), hint.steps(), nl);
             }
             return null;
         }

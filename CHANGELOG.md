@@ -12,6 +12,12 @@ the way Java intends agents to be granted.
   writes that file on the first launch and prints the exact line in the log. On the client it also
   shows it once on the main menu, with a button that copies it and one that stops the reminder
   (agentNotice in the config).
+- Nitro recognises the launcher that started the game (Prism, MultiMC, the CurseForge app, the Modrinth
+  App, ATLauncher, GDLauncher, the official launcher, or a dedicated server) and says where the line
+  goes in that one, in the log and on the main menu screen.
+- The CurseForge app has one set of JVM arguments for every profile, so there the line points at a
+  shared copy beside the Instances folder. Deleting one profile can then never stop the others from
+  starting, and profiles without Nitro ignore it. Servers get a relative path for their start script.
 - The file is a small loader that never changes. It finds the Nitro jar in the mods folder and runs
   the agent from it, so updating Nitro does not mean editing the argument again. With Nitro removed
   it does nothing.
