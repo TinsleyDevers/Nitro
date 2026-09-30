@@ -34,14 +34,19 @@ public final class NitroTransformationService implements ITransformationService 
     public void onLoad(IEnvironment env, Set<String> otherServices) throws IncompatibleEnvironmentException {
         Path gameDir = env.getProperty(IEnvironment.Keys.GAMEDIR.get())
             .orElseGet(() -> Paths.get(".").toAbsolutePath().normalize());
-        // The adapter itself only rewrites Envelope's callback when it still has the exact shape it
-        // had on 0.7.5 and returns false otherwise, so the gate here only has to answer "are both
-        // mods installed, on a JEI line the adapter was written for". Matching whole jar file names
-        // was too strict: a JEI patch bump, or a launcher that renames jars, switched it off.
-        envelopeCompatibility = hasJar(gameDir, "envelope-") && hasJar(gameDir, "jei-1.21.1-neoforge-19.53.");
+        // The adapter only rewrites Envelope's callback when it still has the exact shape it had on
+        // 0.7.5 and returns false otherwise, so the gate only has to answer "is Envelope installed, and
+        // does the installed JEI have the moved injection point the adapter targets". That second part
+        // is read out of JEI's own transfer handler rather than guessed from a file name: JEI 19.53
+        // through at least 19.57 all have it, and a file-name check went quiet on every JEI update.
+        envelopeCompatibility = hasJar(gameDir, "envelope-") && jeiHasMovedTransferHandler(gameDir);
         try {
             NitroSettings settings = NitroSettings.load(gameDir);
             reportConfigSources(settings);
+            if (settings.startupProfiler && settings.startupReport) {
+                // Started before anything else, and independent of the agent, so it covers the whole launch.
+                StartupProfiler.start();
+            }
             if (!settings.resolverPatch && !settings.loaderPatches) {
                 LOGGER.info("Nitro: JVM agent disabled in config (resolverPatch=false, loaderPatches=false)");
                 return;
@@ -53,12 +58,49 @@ public final class NitroTransformationService implements ITransformationService 
             if (inst != null && settings.loaderPatches) {
                 LoaderPatches.apply(inst, gameDir, settings.classCache);
             }
-            if (inst != null && settings.startupProfiler && settings.startupReport) {
-                nitro.agent.boot.NitroProfiler.start();
-            }
         } catch (Throwable t) {
             LOGGER.warn("Nitro: early launch patches failed; continuing without them", t);
         }
+    }
+
+    private static final String JEI_TRANSFER_HANDLER = "mezz/jei/library/transfer/BasicRecipeTransferHandler.class";
+
+    /**
+     * True when the installed JEI's transfer handler has {@code transferRecipeInternal}, the method
+     * JEI moved the packet sending into and which Envelope 0.7.5's mixin does not know about. Jars
+     * named like JEI are looked at first; every jar only when none of those is JEI.
+     */
+    private static boolean jeiHasMovedTransferHandler(Path gameDir) {
+        Path mods = gameDir.resolve("mods");
+        if (!java.nio.file.Files.isDirectory(mods)) {
+            return false;
+        }
+        java.util.List<Path> named = new java.util.ArrayList<>();
+        java.util.List<Path> others = new java.util.ArrayList<>();
+        try (java.util.stream.Stream<Path> files = java.nio.file.Files.list(mods)) {
+            files.filter(f -> f.getFileName().toString().endsWith(".jar"))
+                .forEach(f -> (f.getFileName().toString().toLowerCase(java.util.Locale.ROOT).startsWith("jei") ? named : others).add(f));
+        } catch (java.io.IOException e) {
+            return false;
+        }
+        for (java.util.List<Path> group : java.util.List.of(named, others)) {
+            for (Path jar : group) {
+                try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(jar.toFile())) {
+                    java.util.zip.ZipEntry entry = zip.getEntry(JEI_TRANSFER_HANDLER);
+                    if (entry == null) {
+                        continue;
+                    }
+                    byte[] bytes;
+                    try (java.io.InputStream in = zip.getInputStream(entry)) {
+                        bytes = in.readAllBytes();
+                    }
+                    return new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1).contains("transferRecipeInternal");
+                } catch (java.io.IOException ignored) {
+                    // unreadable jar; keep looking
+                }
+            }
+        }
+        return false;
     }
 
     /** @return true when the mods folder holds a jar whose name starts with {@code prefix}. */

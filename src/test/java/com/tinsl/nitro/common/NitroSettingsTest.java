@@ -96,4 +96,17 @@ class NitroSettingsTest {
         assertEquals(before.lines().count(), after.lines().count(), "no lines added or lost");
         assertTrue(after.contains("# Back-port the JDK 25"), "comments are kept");
     }
+
+    @Test
+    void anUntouchedOldDefaultIsUpgradedButAChosenValueIsKept(@TempDir Path gameDir) throws IOException {
+        Path file = write(gameDir, "jeiVersions=[19.53,19.54)\n");
+        assertEquals(NitroSettings.DEFAULT_JEI_VERSIONS, NitroSettings.load(gameDir).jeiVersions);
+        assertTrue(Files.readString(file).contains("jeiVersions=" + NitroSettings.DEFAULT_JEI_VERSIONS), "written back");
+    }
+
+    @Test
+    void aJeiRangeThePlayerChoseIsLeftAlone(@TempDir Path gameDir) throws IOException {
+        write(gameDir, "jeiVersions=[19.53,19.56)\n");
+        assertEquals("[19.53,19.56)", NitroSettings.load(gameDir).jeiVersions);
+    }
 }

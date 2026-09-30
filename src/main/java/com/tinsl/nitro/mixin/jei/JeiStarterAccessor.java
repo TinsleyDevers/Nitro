@@ -1,8 +1,6 @@
 package com.tinsl.nitro.mixin.jei;
 
 import mezz.jei.api.IModPlugin;
-import mezz.jei.common.config.ConfigManager;
-import mezz.jei.common.config.JeiClientConfigs;
 import mezz.jei.library.config.ColorNameConfig;
 import mezz.jei.library.config.ModIdFormatConfig;
 import mezz.jei.library.config.RecipeCategorySortingConfig;
@@ -17,6 +15,11 @@ import org.spongepowered.asm.mixin.gen.Invoker;
 
 import java.util.List;
 
+/**
+ * Only fields that JEI 19.53 through 19.57 all have. The config fields changed type in 19.55 and are
+ * read through {@code JeiGeneration} instead, since an accessor for a field that is not there is a
+ * mixin error.
+ */
 @Mixin(value = JeiStarter.class, remap = false)
 public interface JeiStarterAccessor {
     @Accessor("running")
@@ -42,12 +45,6 @@ public interface JeiStarterAccessor {
 
     @Accessor("recipeCategorySortingConfig")
     RecipeCategorySortingConfig nitro$getRecipeCategorySortingConfig();
-
-    @Accessor("configManager")
-    ConfigManager nitro$getConfigManager();
-
-    @Accessor("jeiClientConfigs")
-    JeiClientConfigs nitro$getJeiClientConfigs();
 
     @Accessor("stopCallbacks")
     List<IStopCallback> nitro$getStopCallbacks();

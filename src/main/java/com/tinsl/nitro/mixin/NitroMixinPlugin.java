@@ -27,7 +27,8 @@ public final class NitroMixinPlugin implements IMixinConfigPlugin {
     public void onLoad(String mixinPackage) {
         settings = NitroSettings.load(FMLPaths.GAMEDIR.get());
         ModTargets.configure(settings.strictVersions, settings.jeiVersions);
-        jeiActive = ModTargets.check("jei", settings.asyncJei).active();
+        jeiActive = ModTargets.check("jei", settings.asyncJei).active()
+            && ModTargets.check("jei.errorUtil", settings.asyncJei).active();
     }
 
     @Override

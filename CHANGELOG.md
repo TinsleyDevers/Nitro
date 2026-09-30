@@ -28,6 +28,21 @@ the way Java intends agents to be granted.
 - Leftovers from the old attach (the hashed agent copies and attach.log in .nitro) are cleaned up.
 - The jar starts no processes and contains no attach code.
 
+JEI and a few other things found on a 1000 mod pack:
+
+- Async JEI now works on every JEI build from 19.53.0.425 to 19.57.0.450 (it was limited to 19.53
+  and 19.54). JEI reworked its config system across that range in three separate builds, so the
+  handful of calls that differ are probed one by one when the first world is joined; each of the 19
+  builds was checked. Config files still holding the old default range are moved to the new one.
+- The Envelope adapter no longer keys off the JEI file name. It reads the installed JEI and applies
+  whenever the moved transfer handler is there. Before, any JEI newer than 19.53 switched it off, and
+  Envelope 0.7.5's required mixin then crashed the game on world join.
+- The async JEI check now covers every JEI field and method Nitro reaches into, so widening
+  jeiVersions can switch the feature off but never fail a mixin.
+- The startup profiler works without the agent, so everyone gets the "where launch time went" table.
+- Moonlight's version range was wrong (its version is written "1.21.1-3.7.0"), which made every
+  launch log its fixes as untested. Fixed; the fixes themselves were applying all along.
+
 This release also carries everything from 1.1.0, which did not go out on the sites: every fix that
 patches another mod checks the installed class before applying, async JEI works on the whole
 JEI 19.53 line again (it had switched itself off on 19.53.0.426), the end-of-loading report, the

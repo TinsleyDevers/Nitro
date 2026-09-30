@@ -108,19 +108,43 @@ public final class NitroReport {
     }
 
     /**
-     * Asks the sampling profiler on the bootstrap class path for its summary. It is reached by name
-     * because it is loaded by the JVM agent, which the mod half cannot see directly.
+     * Asks the startup profiler in Nitro's launcher half for its summary. That half is loaded by
+     * ModLauncher before the game layer exists, so it is found through the layer that holds it rather
+     * than imported; when it cannot be found the report simply has no profile.
      */
     @SuppressWarnings("unchecked")
     private static List<String> profilerLines() {
         try {
-            Class<?> profiler = Class.forName("nitro.agent.boot.NitroProfiler", false, null);
+            Class<?> profiler = launcherClass("com.tinsl.nitro.launch.StartupProfiler");
+            if (profiler == null) {
+                return List.of();
+            }
             return (List<String>) profiler.getMethod("stop", Set.class).invoke(null, modModuleNames());
-        } catch (ClassNotFoundException e) {
-            return List.of();
         } catch (Throwable t) {
             Nitro.LOGGER.debug("Nitro: startup profiler summary unavailable: {}", t.toString());
             return List.of();
+        }
+    }
+
+    private static Class<?> launcherClass(String name) {
+        try {
+            return Class.forName(name, true, NitroReport.class.getClassLoader());
+        } catch (Throwable ignored) {
+            // not visible from the game layer; ask ModLauncher for the layer Nitro's launcher is in
+        }
+        try {
+            var manager = cpw.mods.modlauncher.Launcher.INSTANCE.findLayerManager().orElse(null);
+            if (manager == null) {
+                return null;
+            }
+            var layer = manager.getLayer(cpw.mods.modlauncher.api.IModuleLayerManager.Layer.SERVICE).orElse(null);
+            if (layer == null) {
+                return null;
+            }
+            var module = layer.findModule("nitro.launch").orElse(null);
+            return module == null ? null : Class.forName(module, name);
+        } catch (Throwable t) {
+            return null;
         }
     }
 

@@ -10,9 +10,6 @@ import mezz.jei.api.recipe.transfer.IRecipeTransferManager;
 import mezz.jei.api.runtime.IScreenHelper;
 import mezz.jei.api.search.ISearchStorageBuilderFactory;
 import mezz.jei.common.Internal;
-import mezz.jei.common.config.ConfigManager;
-import mezz.jei.common.config.IIngredientFilterConfig;
-import mezz.jei.common.config.JeiClientConfigs;
 import mezz.jei.common.platform.Services;
 import mezz.jei.common.recipes.VanillaClientRecipeLoader;
 import mezz.jei.common.util.LoggedTimer;
@@ -128,6 +125,7 @@ public final class AsyncJeiStarter {
         if (!jeiInternalsPresent(starter.getClass().getClassLoader())) {
             return false;
         }
+        final JeiGeneration jei = jeiGeneration;
         RegistryAccess registryAccess = level.registryAccess();
         RegistryUtil.setRegistryAccess(registryAccess);
         if (!Internal.hasClientRecipes()) {
@@ -142,20 +140,25 @@ public final class AsyncJeiStarter {
         final StartData data = acc.nitro$getData();
         final List<IModPlugin> plugins = acc.nitro$getPlugins();
         final VanillaPlugin vanillaPlugin = acc.nitro$getVanillaPlugin();
-        final ConfigManager configManager = acc.nitro$getConfigManager();
-        final JeiClientConfigs jeiClientConfigs = acc.nitro$getJeiClientConfigs();
+        final Object configManager;
+        final Object clientConfigs;
+        try {
+            configManager = jei.configManager(starter);
+            clientConfigs = jei.clientConfigs(starter);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("Nitro: could not read JEI's config objects", e);
+        }
 
         final LoggedTimer totalTime = new LoggedTimer();
         totalTime.start("Starting JEI (Nitro: async)");
         final long renderThreadStart = System.nanoTime();
 
-        configManager.onJeiStarted();
+        call(() -> jei.onJeiStarted(configManager));
         PluginCaller.callOnPlugins("Configuring JEI", plugins, p -> p.configureJei(new PluginAwareJeiFeatures(Internal.getJeiFeatures(), p)));
 
         final IColorHelper colorHelper = new ColorHelper(acc.nitro$getColorNameConfig());
-        final IIngredientFilterConfig ingredientFilterConfig = jeiClientConfigs.getIngredientFilterConfig();
         final SubtypeManager subtypeManager = PluginLoader.registerSubtypes(data);
-        final IngredientManager ingredientManager = PluginLoader.registerIngredients(data, subtypeManager, colorHelper, ingredientFilterConfig);
+        final IngredientManager ingredientManager = call(() -> jei.registerIngredients(data, subtypeManager, colorHelper, clientConfigs));
 
         final List<IStopCallback> localStops = new ArrayList<>();
         localStops.add(ingredientManager::onRuntimeStopped);
@@ -189,7 +192,7 @@ public final class AsyncJeiStarter {
                     configDir.resolve("blacklist.json"), registryAccess, codecHelper);
                 EditModeConfig editModeConfig = new EditModeConfig(editModeSerializer, ingredientManager);
 
-                ImmutableSetMultimap<String, String> modAliases = PluginLoader.registerModAliases(data, ingredientFilterConfig);
+                ImmutableSetMultimap<String, String> modAliases = jei.registerModAliases(data, clientConfigs);
                 JeiHelpers jeiHelpers = PluginLoader.createJeiHelpers(
                     modAliases, acc.nitro$getModIdFormatConfig(), colorHelper, editModeConfig,
                     focusFactory, codecHelper, ingredientManager, subtypeManager);
@@ -198,6 +201,10 @@ public final class AsyncJeiStarter {
                 ISearchStorageBuilderFactory searchStorageBuilderFactory = PluginLoader.createSearchStorageFactory(plugins);
                 RecipeManager recipeManager = PluginLoader.createRecipeManager(
                     plugins, vanillaPlugin, acc.nitro$getRecipeCategorySortingConfig(), jeiHelpers, ingredientManager);
+                IStopCallback recipeStop = jei.recipeManagerStop(recipeManager);
+                if (recipeStop != null) {
+                    localStops.add(recipeStop);
+                }
                 if (generation != GENERATION.get()) {
                     minecraft.execute(() -> { discard(localStops, "world changed during recipe registration"); startupPending = false; });
                     return;
@@ -216,7 +223,7 @@ public final class AsyncJeiStarter {
 
                 minecraft.execute(() -> finish(starter, acc, generation, modPlugins, plugins, runtimeRegistration,
                     recipeManager, ingredientManager, jeiHelpers, screenHelper, recipeTransferManager, editModeConfig,
-                    configManager, localStops, totalTime));
+                    configManager, jei, localStops, totalTime));
             } catch (Throwable t) {
                 // A LinkageError here means the installed JEI is not shaped the way this
                 // re-implementation expects, which the fallback handles like any other failure.
@@ -284,8 +291,50 @@ public final class AsyncJeiStarter {
                 return false;
             }
         }
+        try {
+            jeiGeneration = JeiGeneration.detect();
+        } catch (ReflectiveOperationException | LinkageError e) {
+            Nitro.LOGGER.warn("Nitro: the installed JEI does not match any layout the async startup knows ({}), "
+                + "so its startup is left alone.", e.toString());
+            internalsPresent = Boolean.FALSE;
+            return false;
+        }
+        Nitro.LOGGER.info("Nitro: async JEI startup matched this JEI ({})", jeiGeneration.describe());
         internalsPresent = Boolean.TRUE;
         return true;
+    }
+
+    private static volatile JeiGeneration jeiGeneration;
+
+    @FunctionalInterface
+    private interface Reflective<T> {
+        T get() throws ReflectiveOperationException;
+    }
+
+    @FunctionalInterface
+    private interface ReflectiveVoid {
+        void run() throws ReflectiveOperationException;
+    }
+
+    /** Runs one of the generation-specific calls, unwrapping what JEI itself threw. */
+    private static <T> T call(Reflective<T> body) {
+        try {
+            return body.get();
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException r) throw r;
+            if (cause instanceof Error err) throw err;
+            throw new IllegalStateException(cause);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Nitro: JEI call failed", e);
+        }
+    }
+
+    private static void call(ReflectiveVoid body) {
+        call(() -> {
+            body.run();
+            return null;
+        });
     }
 
     private static void finish(JeiStarter starter, JeiStarterAccessor acc, int generation,
@@ -293,7 +342,7 @@ public final class AsyncJeiStarter {
                                RuntimeRegistration runtimeRegistration, RecipeManager recipeManager,
                                IngredientManager ingredientManager, JeiHelpers jeiHelpers, IScreenHelper screenHelper,
                                IRecipeTransferManager recipeTransferManager, EditModeConfig editModeConfig,
-                               ConfigManager configManager, List<IStopCallback> localStops, LoggedTimer totalTime) {
+                               Object configManager, JeiGeneration jei, List<IStopCallback> localStops, LoggedTimer totalTime) {
         startupPending = false;
         if (generation != GENERATION.get() || acc.nitro$isRunning()) {
             discard(localStops, "world changed before hand-off");
@@ -301,7 +350,7 @@ public final class AsyncJeiStarter {
         }
         try {
             PluginCaller.callOnPlugins("Registering Runtime (mods)", modPlugins, p -> p.registerRuntime(runtimeRegistration));
-            JeiRuntime jeiRuntime = new JeiRuntime(
+            JeiRuntime jeiRuntime = jei.newRuntime(
                 recipeManager, ingredientManager, Internal.getKeyMappings(), jeiHelpers, screenHelper,
                 recipeTransferManager, editModeConfig,
                 runtimeRegistration.getIngredientListOverlay(),

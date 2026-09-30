@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
@@ -115,7 +116,7 @@ public final class NitroSettings {
         this.pathfindThreads = integer(p, "pathfindThreads", 0);
         this.strictVersions = bool(p, "strictVersions", false);
         this.startupProfiler = bool(p, "startupProfiler", true);
-        this.jeiVersions = string(p, "jeiVersions", "[19.53,19.54)");
+        this.jeiVersions = string(p, "jeiVersions", DEFAULT_JEI_VERSIONS);
         this.agentNotice = bool(p, "agentNotice", true);
         this.overriddenKeys = List.copyOf(overrides);
         this.unknownKeys = unknown(p);
@@ -171,6 +172,17 @@ public final class NitroSettings {
 
     private static volatile NitroSettings cached;
 
+    /** JEI builds the async startup was checked against, one by one, from 19.53.0.425 to 19.57.0.450. */
+    public static final String DEFAULT_JEI_VERSIONS = "[19.53,19.58)";
+
+    /**
+     * Defaults an earlier Nitro wrote into the config file and later replaced. A file that still holds
+     * one of these was never edited for that key, so it is moved to the current default; a value the
+     * player chose is left alone.
+     */
+    private static final Map<String, List<String>> RETIRED_DEFAULTS = Map.of(
+        "jeiVersions", List.of("[19.53,19.54)"));
+
     public static NitroSettings load(Path gameDir) {
         NitroSettings s = cached;
         if (s != null) {
@@ -184,6 +196,7 @@ public final class NitroSettings {
                     p.load(in);
                 }
                 appendMissing(file, p);
+                upgradeRetiredDefaults(file, p);
             } else {
                 writeDefaults(file);
             }
@@ -280,12 +293,34 @@ public final class NitroSettings {
         new String[] {"agentNotice", "true", """
             # Show a one-time screen on the main menu when the Nitro agent is not in the JVM arguments, with the line
             # to add and a button that copies it. Choosing "Don't show again" on that screen turns this off."""},
-        new String[] {"jeiVersions", "[19.53,19.54)", """
+        new String[] {"jeiVersions", DEFAULT_JEI_VERSIONS, """
             # JEI version range the asynchronous startup applies to, as a maven range. The async startup re-implements
-            # JEI's own start method, so it is tied to JEI's internals rather than to its public API. Widen this at your
-            # own risk: if the re-implementation does not fit the installed JEI, Nitro falls back to JEI's normal
-            # startup and logs it, so the worst case is the freeze you would have had anyway."""}
+            # JEI's own start method, so it is tied to JEI's internals rather than to its public API; the default covers
+            # every build from 19.53.0.425 to 19.57.0.450, each checked. Widen it at your own risk: Nitro checks JEI's
+            # layout before taking the startup over and leaves JEI alone when it does not fit, so the worst case is
+            # the freeze you would have had anyway."""}
     );
+
+    private static void upgradeRetiredDefaults(Path file, Properties p) throws IOException {
+        for (Map.Entry<String, List<String>> retired : RETIRED_DEFAULTS.entrySet()) {
+            String key = retired.getKey();
+            String value = p.getProperty(key);
+            if (value != null && retired.getValue().contains(value.trim())) {
+                String current = defaultOf(key);
+                p.setProperty(key, current);
+                replaceKey(file, key, current);
+            }
+        }
+    }
+
+    private static String defaultOf(String key) {
+        for (String[] e : ENTRIES) {
+            if (e[0].equals(key)) {
+                return e[1];
+            }
+        }
+        throw new IllegalArgumentException(key);
+    }
 
     /**
      * Changes one key in the config file in place, keeping every other line and comment as it is.
@@ -296,6 +331,10 @@ public final class NitroSettings {
         if (!Files.isRegularFile(file)) {
             writeDefaults(file);
         }
+        replaceKey(file, key, value);
+    }
+
+    private static void replaceKey(Path file, String key, String value) throws IOException {
         List<String> lines = new ArrayList<>(Files.readAllLines(file, StandardCharsets.UTF_8));
         boolean found = false;
         for (int i = 0; i < lines.size(); i++) {

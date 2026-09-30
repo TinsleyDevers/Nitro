@@ -89,6 +89,9 @@ public final class ModTargets {
 
     private static final List<String> NONE = List.of();
 
+    /** Moonlight's mod version carries the Minecraft version in front of its own ("1.21.1-3.7.0"). */
+    private static final String MOONLIGHT = "[1.21.1-3.5,1.21.2)";
+
     /**
      * Every fix that touches another mod, with the versions it was tested against on a 1017 mod
      * 1.21.1 pack and the members it needs to still exist.
@@ -113,11 +116,11 @@ public final class ModTargets {
             "[1.3,2.0)", List.of("itemAbility", "itemStacks"), List.of("dissolve")));
 
         TARGETS.put("moonlight.fastSearch", soft("moonlight", "net.mehvahdjukaar.moonlight.api.resources.pack.FastSearchPathPackResources",
-            "[3.5,4.0)", List.of("root", "packType"), List.of("getResource", "listResources")));
+            MOONLIGHT, List.of("root", "packType"), List.of("getResource", "listResources")));
         TARGETS.put("moonlight.cachedAccessor", soft("moonlight", "net.mehvahdjukaar.moonlight.api.resources.pack.AbstractCachedEditableResources",
-            "[3.5,4.0)", List.of("path", "packType"), NONE));
+            MOONLIGHT, List.of("path", "packType"), NONE));
         TARGETS.put("moonlight.cacheWrite", soft("moonlight", "net.mehvahdjukaar.moonlight.api.resources.pack.CachePathPackResources",
-            "[3.5,4.0)", NONE, List.of("addResource", "clearAllResources")));
+            MOONLIGHT, NONE, List.of("addResource", "clearAllResources")));
 
         TARGETS.put("elysium", soft("elysium_api", "net.jadenxgamer.elysium_api.impl.client.conditional_resource.ConditionalAssetsHelper",
             "[2.0,3.0)", NONE, List.of("isAssetHidden")));
@@ -143,7 +146,13 @@ public final class ModTargets {
             NONE, List.of("loadRecipes", "isIrreversible")));
         // The async startup re-implements JeiStarter.start(), so it is tied to that method's contents.
         // The range comes from config (jeiVersions) so a user can widen it without a Nitro release.
-        TARGETS.put("jei", hard("jei", "mezz.jei.library.startup.JeiStarter", null, NONE, List.of("start", "stop")));
+        // Every field and method the JeiStarter accessor reaches, so a widened jeiVersions can at worst
+        // switch async JEI off, never fail a mixin.
+        TARGETS.put("jei", hard("jei", "mezz.jei.library.startup.JeiStarter", null,
+            List.of("running", "data", "plugins", "vanillaPlugin", "modIdFormatConfig", "colorNameConfig",
+                "recipeCategorySortingConfig", "stopCallbacks", "jeiClientConfigs"),
+            List.of("start", "stop", "verifyClientRecipes")));
+        TARGETS.put("jei.errorUtil", soft("jei", "mezz.jei.common.util.ErrorUtil", null, NONE, List.of("assertMainThread")));
     }
 
     /** Mods that already do what one of Nitro's optional fixes does; Nitro stands down for them. */
@@ -154,7 +163,7 @@ public final class ModTargets {
     private static final Map<String, Set<String>[]> SHAPES = new java.util.HashMap<>();
 
     private static volatile boolean strictVersions;
-    private static volatile String jeiRange = "[19.53,19.54)";
+    private static volatile String jeiRange = com.tinsl.nitro.common.NitroSettings.DEFAULT_JEI_VERSIONS;
 
     private ModTargets() {}
 

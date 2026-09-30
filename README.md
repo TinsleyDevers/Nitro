@@ -129,9 +129,11 @@ only method bodies are swapped for delegations to hook classes on the bootstrap 
     freeze", 10 FPS). Only the parts that must touch client state stay on the render thread
     (~10 s); recipe registration and the search index build on a low-priority background thread,
     with a fallback to the stock startup. This one re-implements `JeiStarter.start()` rather than
-    calling JEI's public API, so it applies to a JEI version range (`jeiVersions`, default the 19.53
-    line) and checks that JEI's internals are all present before it takes the startup over. When
-    they are not, JEI starts normally and Nitro says why in the log.
+    calling JEI's public API, so it applies to a JEI version range (`jeiVersions`, default every
+    build from 19.53.0.425 to 19.57.0.450, each one checked). JEI reworked its config system across
+    that range in three separate builds, so each difference is probed on its own when the first
+    world is joined, and Nitro checks that everything it touches is present before it takes the
+    startup over. When something does not fit, JEI starts normally and Nitro says why in the log.
 15. **Directory packs in memory.** Packs that are folders on disk (`datapacks/`, KubeJS, Moonlight's
     `dynamic-*-pack-cache`, where the Sawmill mod keeps ~27,000 recipe files) were opened file by
     file on every data pack reload; each open costs milliseconds when antivirus inspects it (70 s
@@ -240,7 +242,7 @@ the CPU go while chunks generate:
 | `startupReport` | true | log "Nitro report" timing lines and the fix table at the end of loading |
 | `strictVersions` | false | only apply a mod-specific fix when that mod's version is one Nitro was tested against, on top of the class check that always runs |
 | `startupProfiler` | true | sample the loading threads and report where launch time went, including time spent waiting on the network |
-| `jeiVersions` | `[19.53,19.54)` | JEI version range the async startup applies to |
+| `jeiVersions` | `[19.53,19.58)` | JEI version range the async startup applies to |
 | `agentNotice` | true | show the one-time main menu screen with the JVM argument when the agent is missing |
 
 Any key also works as a JVM argument: `-Dnitro.config.<key>=<value>` wins over the file, which is

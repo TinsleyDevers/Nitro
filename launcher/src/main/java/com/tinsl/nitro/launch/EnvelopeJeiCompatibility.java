@@ -20,7 +20,7 @@ public final class EnvelopeJeiCompatibility implements ITransformer<ClassNode> {
     static final String RESULT = "Lmezz/jei/library/transfer/BasicRecipeTransferHandler;sendTransferWithResult(Ljava/util/List;Ljava/util/List;Ljava/util/List;ZZZ" + CONTEXT + ")V";
 
     @Override public ClassNode transform(ClassNode input, ITransformerVotingContext context) {
-        if (patch(input)) LogManager.getLogger("Nitro").info("Nitro: adapted Envelope JEI mail transfer callback for JEI 19.53 (including result packets)");
+        if (patch(input)) LogManager.getLogger("Nitro").info("Nitro: adapted Envelope JEI mail transfer callback to the moved JEI transfer handler (including result packets)");
         return input;
     }
 

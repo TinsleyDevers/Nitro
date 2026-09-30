@@ -23,7 +23,11 @@ class EnvelopeJeiCompatibilityTest {
         MethodNode callback = envelope.methods.stream().filter(m -> m.name.equals("onTransferRecipe")).findFirst().orElseThrow();
         assertTrue(callback.desc.contains(EnvelopeJeiCompatibility.CONTEXT));
         new Analyzer<>(new BasicVerifier()).analyze(envelope.name, callback);
-        ClassNode jei = read("jei-1.21.1-neoforge-19.53.0.425.jar", "mezz/jei/library/transfer/BasicRecipeTransferHandler");
+        String jeiJar;
+        try (var files = Files.list(Path.of(System.getProperty("nitro.packDir"), "mods"))) {
+            jeiJar = files.map(p -> p.getFileName().toString()).filter(n -> n.startsWith("jei-1.21.1-neoforge-")).findFirst().orElseThrow();
+        }
+        ClassNode jei = read(jeiJar, "mezz/jei/library/transfer/BasicRecipeTransferHandler");
         MethodNode internal = jei.methods.stream().filter(m -> m.name.equals("transferRecipeInternal")).findFirst().orElseThrow();
         String targetArgs = internal.desc.substring(0, internal.desc.indexOf(')'));
         assertEquals(targetArgs + EnvelopeJeiCompatibility.CALLBACK + ")V", callback.desc);

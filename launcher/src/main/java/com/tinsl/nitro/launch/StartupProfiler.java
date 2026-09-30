@@ -1,4 +1,4 @@
-package nitro.agent.boot;
+package com.tinsl.nitro.launch;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -23,10 +23,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * DNS lookup is charged to the network bucket as well, under the same mod. Nothing is instrumented
  * and no state is kept per call, so the cost is the snapshot itself, well under a percent of launch.
  *
- * This class lives on the bootstrap class path (the agent puts it there), so it uses nothing outside
- * java.base and hands its result back as plain strings for the mod half to log.
+ * It runs in Nitro's launcher half from the first moment Nitro loads, and needs nothing from the JVM
+ * agent, so every player gets it. The mod half asks for the result by name when loading finishes
+ * (see {@code NitroReport}) and logs it; this class hands it back as plain strings.
  */
-public final class NitroProfiler {
+public final class StartupProfiler {
     private static final long DEFAULT_INTERVAL_MS = 500L;
 
     /**
@@ -62,7 +63,7 @@ public final class NitroProfiler {
     private static volatile long startedAtNanos;
     private static volatile boolean stopped;
 
-    private NitroProfiler() {}
+    private StartupProfiler() {}
 
     /** Starts sampling. Safe to call twice; the second call does nothing. */
     public static synchronized void start() {
@@ -70,7 +71,7 @@ public final class NitroProfiler {
             return;
         }
         startedAtNanos = System.nanoTime();
-        Thread t = new Thread(NitroProfiler::run, "Nitro startup profiler");
+        Thread t = new Thread(StartupProfiler::run, "Nitro startup profiler");
         t.setDaemon(true);
         t.setPriority(Thread.MIN_PRIORITY);
         sampler = t;
