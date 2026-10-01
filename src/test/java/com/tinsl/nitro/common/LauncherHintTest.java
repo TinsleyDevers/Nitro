@@ -17,7 +17,9 @@ class LauncherHintTest {
         LauncherHint hint = LauncherHint.detect(dir, "org.prismlauncher.EntryPoint", null);
         assertEquals("Prism Launcher", hint.launcher());
         assertEquals(dir.resolve(".nitro/nitro-agent.jar"), hint.agentFile());
-        assertEquals("-javaagent:\"" + dir.resolve(".nitro/nitro-agent.jar") + "\"", hint.argument(dir), "spaces get quotes");
+        assertEquals("-javaagent:\"C:/Users/me/AppData/Roaming/PrismLauncher/instances/Big Pack/minecraft/.nitro/nitro-agent.jar\"",
+            hint.argument(dir), "spaces get quotes, and no backslashes: Prism drops them and the JVM then fails to start");
+        assertFalse(hint.argument(dir).contains("\\"));
         assertFalse(hint.shared());
     }
 
@@ -65,6 +67,7 @@ class LauncherHintTest {
         Path dir = Path.of("/home/me/games/mc");
         LauncherHint hint = LauncherHint.detect(dir, "some.Other.Main", null);
         assertEquals("your launcher", hint.launcher());
-        assertEquals("-javaagent:" + dir.resolve(".nitro/nitro-agent.jar").toAbsolutePath(), hint.argument(dir.toAbsolutePath()));
+        assertEquals("-javaagent:" + dir.resolve(".nitro/nitro-agent.jar").toAbsolutePath().toString().replace('\\', '/'),
+            hint.argument(dir.toAbsolutePath()));
     }
 }

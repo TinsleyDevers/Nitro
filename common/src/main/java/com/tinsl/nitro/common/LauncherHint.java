@@ -25,9 +25,11 @@ public record LauncherHint(String launcher, String steps, Path agentFile, boolea
 
     /** The JVM argument, quoted when the path has spaces (launchers strip the quotes). */
     public String argument(Path gameDir) {
-        String path = relative
-            ? gameDir.toAbsolutePath().normalize().relativize(agentFile).toString().replace('\\', '/')
-            : agentFile.toString();
+        // Always forward slashes. Java takes them on Windows, and launchers do not take the other kind:
+        // Prism treats a backslash in its JVM arguments box as an escape and drops it, and a JVM that
+        // cannot find its -javaagent file does not start at all.
+        String path = (relative ? gameDir.toAbsolutePath().normalize().relativize(agentFile) : agentFile)
+            .toString().replace('\\', '/');
         return "-javaagent:" + (path.indexOf(' ') >= 0 ? '"' + path + '"' : path);
     }
 
