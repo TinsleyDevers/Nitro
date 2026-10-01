@@ -262,6 +262,12 @@ mod without changing what the mods do. For worldgen speed, which Nitro does not 
 [Fast Noise](https://modrinth.com/mod/zfastnoise) and C2ME are the answer; for recipe matching,
 [FastSuite](https://modrinth.com/mod/fastsuite) (Nitro's experimental `parallelRecipes` stands down
 when it is installed).
+Just Enough Threads takes over JEI's startup the same way Nitro's async JEI does, so Nitro leaves
+JEI to it when both are installed.
+
+`tools/MixinSweep.java` is a check for pack authors: it reads a mods folder and lists mods whose
+patches on other mods no longer fit (a method that was renamed, a call that moved), so a mass update
+can be checked before the game is started rather than one crash at a time.
 
 ## Building
 

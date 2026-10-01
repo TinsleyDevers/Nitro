@@ -39,6 +39,8 @@ JEI and a few other things found on a 1000 mod pack:
   Envelope 0.7.5's required mixin then crashed the game on world join.
 - The async JEI check now covers every JEI field and method Nitro reaches into, so widening
   jeiVersions can switch the feature off but never fail a mixin.
+- Async JEI stands down when Just Enough Threads is installed. That mod takes over JEI's startup the
+  same way, and two mods replacing one method cannot both be right.
 - The startup profiler works without the agent, so everyone gets the "where launch time went" table.
 - Moonlight's version range was wrong (its version is written "1.21.1-3.7.0"), which made every
   launch log its fixes as untested. Fixed; the fixes themselves were applying all along.

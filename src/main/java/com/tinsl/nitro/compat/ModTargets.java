@@ -157,7 +157,10 @@ public final class ModTargets {
 
     /** Mods that already do what one of Nitro's optional fixes does; Nitro stands down for them. */
     private static final Map<String, String> CONFLICTS = Map.of(
-        "parallelRecipes", "fastsuite");
+        "parallelRecipes", "fastsuite",
+        // Just Enough Threads cancels JeiStarter.start() and runs its own asynchronous startup, the
+        // same takeover Nitro's async JEI does. Two of those on one method cannot both be right.
+        "asyncJei", "justenoughthreads");
 
     private static final Map<String, Decision> DECISIONS = Collections.synchronizedMap(new LinkedHashMap<>());
     private static final Map<String, Set<String>[]> SHAPES = new java.util.HashMap<>();

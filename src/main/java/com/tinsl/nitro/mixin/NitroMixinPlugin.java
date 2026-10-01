@@ -27,8 +27,16 @@ public final class NitroMixinPlugin implements IMixinConfigPlugin {
     public void onLoad(String mixinPackage) {
         settings = NitroSettings.load(FMLPaths.GAMEDIR.get());
         ModTargets.configure(settings.strictVersions, settings.jeiVersions);
-        jeiActive = ModTargets.check("jei", settings.asyncJei).active()
-            && ModTargets.check("jei.errorUtil", settings.asyncJei).active();
+        String jeiRival = settings.asyncJei ? ModTargets.conflictFor("asyncJei") : null;
+        if (jeiRival != null) {
+            ModTargets.record("jei", ModTargets.State.OFF_CONFLICT, jeiRival + " already runs JEI's startup off the render thread");
+            LOGGER.info("Nitro: async JEI left to {}, which takes over JEI's startup the same way. "
+                + "Running both would have two mods replacing the same method.", jeiRival);
+            jeiActive = false;
+        } else {
+            jeiActive = ModTargets.check("jei", settings.asyncJei).active()
+                && ModTargets.check("jei.errorUtil", settings.asyncJei).active();
+        }
     }
 
     @Override
