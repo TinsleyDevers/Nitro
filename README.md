@@ -13,7 +13,7 @@ when the mod it applies to is present, and every fix has a switch in `config/nit
 
 ## One JVM argument for the launch patches
 
-Nitro's launch patches (the module resolver, Mixin, the jar handler, the class cache) have to run
+Nitro's launch patches (the module resolver, Mixin and the jar handler) have to run
 before any mod loads, and the only way Java allows that is a JVM agent. Nitro never loads one by
 itself: Java reserves agents for code the player names on the command line, and that is the only
 way Nitro's agent runs. On the first launch Nitro writes a small file and prints the line to add,
@@ -40,12 +40,12 @@ nothing and the game starts normally. Two things to know:
 
 Without the argument, everything else in Nitro (resources, model loading, async JEI, the world join
 fixes) still runs. Java 24 and later already have the module resolver fix built in, so on those the
-argument adds the loader patches and class cache only. NeoForge 1.21.1 booted fine on Java 25 in
+argument adds the loader patches only. NeoForge 1.21.1 booted fine on Java 25 in
 testing, but that is a smaller test than a 1000 mod pack, so treat it as worth a try, not a promise.
 
 ## Will it work on my pack
 
-The launch fixes (module resolver, Mixin, the jar handler, the class cache, the resource index) do
+The launch fixes (module resolver, Mixin, the jar handler, the resource index) do
 not care what is installed and help any 1.21.1 NeoForge pack. The rest are fixes for specific mods,
 and those reach into those mods' private fields and methods, which is not something a mod version
 range can promise. So each one declares the fields and methods it needs and Nitro reads the class
@@ -81,7 +81,7 @@ when it is not, so "is this mod doing anything on my pack" is one search in the 
    directory index (built once from the zip central directories, ~100 ms) narrows each lookup to the
    jars that contain the directory. Fallback to full probing for anything that cannot be indexed.
 
-6. **Transformed-class cache.** Every class the game loads passes through ModLauncher's
+6. **Transformed-class cache (experimental, off by default).** Every class the game loads passes through ModLauncher's
    transformer pipeline: launch plugins, Mixin (600+ configs here), coremods, access transformers,
    dist cleaning and stack-map frame computation. With the same mods, configs and launch arguments
    the output is identical on every launch, so Nitro keeps it in `.nitro/classcache` and hands the
@@ -92,6 +92,13 @@ when it is not, so "is this mod doing anything on my pack" is one search in the 
    Two consecutive launches that never reach "load complete" discard the cache in case a cached
    class was involved. Entries are appended to segment files on a background thread and read back
    memory-mapped, so nothing is copied that is not used.
+
+   It is off by default since 1.2.0, behind `experimentalClassCache`. The premise that the output
+   is identical on every launch rests on every transformer being a pure function of its input,
+   and mixin config plugins are not: they decide what to apply while classes go through the
+   pipeline, and some keep state between decisions. A class served from the cache skips that, and
+   neither the fingerprint nor the per-class hash can tell whether a plugin would have decided the
+   same way. With a gain of a few seconds, that is not a trade to make by default.
 
 All six are applied through `java.lang.instrument` retransformation from Nitro's ModLauncher
 transformation service, i.e. before the game module layer exists, and all six need the agent. Class shapes are unchanged;
@@ -188,7 +195,8 @@ state of the OS file cache and antivirus scanning of the 1017 jars; it runs befo
 
 Launch-to-menu times on this PC scatter by about 15 s between identical runs, so the class cache's
 gain (about 5-10 s on the critical path; the transformer work it removes mostly ran on parallel
-class-loading threads) is at the edge of what two runs can resolve. Under one minute to the menu is
+class-loading threads) is at the edge of what two runs can resolve, and it is no longer on by default
+(see item 6). Under one minute to the menu is
 not reachable by a mod on this pack: after all patches the launch is ~14 s of jar opening and
 discovery, ~15 s of bootstrap class loading, ~38 s of the mods' own constructors and setup, ~28 s
 of resource reload and ~15 s of the final apply, and the middle three are the mods' own code.
@@ -236,7 +244,7 @@ the CPU go while chunks generate:
 | `lazyCullingShapes` | true | MoreCulling culling shapes computed on first use |
 | `worldLoadFixes` | true | Sable once per data pack load, Hexerei pre-filter, Farmer's Delight ingredient cache, Relics tab scan, MEGA Cells index |
 | `spawnFixes` | true | empty stack for equipment queries during mob construction |
-| `classCache` | true | keep transformed class bytes in `.nitro/classcache` and reuse them while mods, configs and launch arguments are unchanged |
+| `experimentalClassCache` | false | experimental: keep transformed class bytes in `.nitro/classcache` and reuse them while mods and configs are unchanged; can mis-patch packs whose mixin plugins track state (see item 6) |
 | `compatFixes` | true | load-order fix for Create Ore Excavation's KubeJS plugin |
 | `pathfindThreads` | 0 | cap Moog's Paths' background path-finding pool (0 = the mod's max(2, cores/4)); suggested 1 on a small dedicated server |
 | `startupReport` | true | log "Nitro report" timing lines and the fix table at the end of loading |
@@ -313,8 +321,8 @@ it embeds.
 ## Notes
 
 - Files extracted at runtime live in `<instance>/.nitro/` and are safe to delete, except
-  `nitro-agent.jar` while the JVM argument points at it. Deleting `.nitro/classcache` resets the
-  transformed-class cache; it is rebuilt on the next launch.
+  `nitro-agent.jar` while the JVM argument points at it. Nitro deletes `.nitro/classcache`
+  itself while the experimental class cache is off.
 - Nitro starts no processes, makes no network connections and never attaches an agent on its own.
   Before 1.2.0 it attached its agent through a short-lived helper JVM; that is gone.
 - Every patch logs one line when applied and one warning when skipped; nothing is silent.

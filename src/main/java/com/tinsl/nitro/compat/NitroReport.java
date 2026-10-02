@@ -41,8 +41,8 @@ public final class NitroReport {
         lines.add(row("loader patches", agentLoaded()
             ? (settings.loaderPatches ? "active" : "off in config")
             : noAgent));
-        lines.add(row("class cache", !settings.classCache ? "off in config"
-            : agentLoaded() ? "active" : noAgent));
+        lines.add(row("class cache", !settings.classCache ? "off (experimental, see experimentalClassCache)"
+            : agentLoaded() ? "ON (experimental)" : noAgent));
         String argument = System.getProperty("nitro.agentArgument");
         if (!agentLoaded() && argument != null) {
             lines.add(row("to turn these on", "add " + argument));

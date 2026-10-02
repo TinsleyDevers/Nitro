@@ -70,7 +70,7 @@ public final class NitroSettings {
     public final boolean directoryPackCache;
     /** Small load-order / compatibility fixes between specific mods (Create Ore Excavation + KubeJS Create). */
     public final boolean compatFixes;
-    /** Keep transformed class bytes on disk (.nitro/classcache) and reuse them while mods and configs are unchanged. */
+    /** Experimental: keep transformed class bytes on disk (.nitro/classcache) and reuse them. Off by default; see the config doc. */
     public final boolean classCache;
     /** Cap for Moog's Paths' background path-finding threads; 0 keeps the mod's own max(2, cores/4). */
     public final int pathfindThreads;
@@ -112,7 +112,7 @@ public final class NitroSettings {
         this.spawnFixes = bool(p, "spawnFixes", true);
         this.directoryPackCache = bool(p, "directoryPackCache", true);
         this.compatFixes = bool(p, "compatFixes", true);
-        this.classCache = bool(p, "classCache", true);
+        this.classCache = bool(p, "experimentalClassCache", false);
         this.pathfindThreads = integer(p, "pathfindThreads", 0);
         this.strictVersions = bool(p, "strictVersions", false);
         this.startupProfiler = bool(p, "startupProfiler", true);
@@ -261,12 +261,14 @@ public final class NitroSettings {
             # A mob whose equipment is queried while it is still being constructed (Forbidden Arcanus hook + Spawn's clams
             # here) throws and never spawns; the server retries every tick and logs a stack trace each time. Answer such
             # early queries with an empty stack instead, which is what the mob actually holds at that moment."""},
-        new String[] {"classCache", "true", """
-            # Cache the result of the class transformer pipeline (Mixin, coremods, access transformers) on disk in
-            # .nitro/classcache and reuse it on later launches. The cache is keyed on a fingerprint of the mod jars,
-            # config files, launch arguments and versions, and every entry is checked against the untransformed class,
-            # so a changed mod or config never serves stale code. Two launches in a row that do not reach the main menu
-            # / "Done" discard it automatically. Delete the .nitro folder to reset it by hand."""},
+        new String[] {"experimentalClassCache", "false", """
+            # EXPERIMENTAL, off by default. Keeps the output of the class transformer pipeline (Mixin, coremods, access
+            # transformers) in .nitro/classcache and reuses it on later launches while mods and configs are unchanged.
+            # It is off because it cannot be shown safe in general: mixin plugins decide what to patch while classes go
+            # through the pipeline, some keep state between those decisions, and a class served from the cache never
+            # goes through it, so the cache cannot vouch for what such a plugin would have done. The time it saves is
+            # small, a few seconds. Only turn it on to experiment, and delete
+            # .nitro/classcache if anything looks off. (This replaces the old classCache key, which no longer does anything.)"""},
         new String[] {"pathfindThreads", "0", """
             # Moog's Paths computes its paths on max(2, cores/4) background threads that run at full load for minutes after
             # a world opens (each path step samples a full terrain-noise column), competing with chunk generation and the

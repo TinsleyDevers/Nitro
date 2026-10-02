@@ -8,7 +8,7 @@ to itself. That step is gone: the agent only runs when you add it to the JVM arg
 the way Java intends agents to be granted.
 
 - Add `-javaagent:<your instance>/.nitro/nitro-agent.jar` to the instance's JVM arguments once to
-  turn the launch patches on (module resolver, Mixin and jar handler patches, class cache). Nitro
+  turn the launch patches on (module resolver, Mixin and jar handler patches). Nitro
   writes that file on the first launch and prints the exact line in the log. On the client it also
   shows it once on the main menu, with a button that copies it and one that stops the reminder
   (agentNotice in the config).
@@ -43,6 +43,11 @@ JEI and a few other things found on a 1000 mod pack:
   same way, and two mods replacing one method cannot both be right.
 - The end-of-loading report also prints when the game goes straight into a world or server without
   stopping at the main menu (quick play, join on launch). It used to wait for a title screen that never came.
+- The transformed-class cache is off by default and renamed experimentalClassCache. Mixin config
+  plugins decide what to patch while classes go through the pipeline, and a class served from the
+  cache skips them, so the cache cannot guarantee the same result; for a few seconds saved, that is
+  not worth having on by default. The old classCache key does nothing now, and a leftover cache
+  folder is deleted while the option is off.
 - The startup profiler works without the agent, so everyone gets the "where launch time went" table.
 - Moonlight's version range was wrong (its version is written "1.21.1-3.7.0"), which made every
   launch log its fixes as untested. Fixed; the fixes themselves were applying all along.

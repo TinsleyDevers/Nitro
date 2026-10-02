@@ -43,6 +43,9 @@ public final class NitroTransformationService implements ITransformationService 
         try {
             NitroSettings settings = NitroSettings.load(gameDir);
             reportConfigSources(settings);
+            if (!settings.classCache) {
+                removeClassCache(gameDir.resolve(".nitro").resolve("classcache"));
+            }
             if (settings.startupProfiler && settings.startupReport) {
                 // Started before anything else, and independent of the agent, so it covers the whole launch.
                 StartupProfiler.start();
@@ -116,6 +119,28 @@ public final class NitroTransformationService implements ITransformationService 
             });
         } catch (java.io.IOException e) {
             return false;
+        }
+    }
+
+    /**
+     * A cache left behind by an earlier Nitro (where it was on by default) is deleted when the cache is
+     * off: it is tens of megabytes, and turning the option back on later should start from a clean slate.
+     */
+    private static void removeClassCache(Path dir) {
+        if (!java.nio.file.Files.isDirectory(dir)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> files = java.nio.file.Files.walk(dir)) {
+            files.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    java.nio.file.Files.deleteIfExists(p);
+                } catch (java.io.IOException ignored) {
+                    // held open by another running instance; it goes next time
+                }
+            });
+            LOGGER.info("Nitro: removed the class cache left by an earlier version (it is now an experimental opt-in)");
+        } catch (java.io.IOException e) {
+            LOGGER.debug("Nitro: could not remove {}: {}", dir, e.toString());
         }
     }
 
