@@ -53,8 +53,39 @@ public final class StartupProfiler {
         "jdk.internal.foreign", "com.sun.net."
     };
 
-    private static final Map<String, AtomicLong> CPU = new ConcurrentHashMap<>();
-    private static final Map<String, AtomicLong> NET = new ConcurrentHashMap<>();
+    /**
+     * Modules that load and transform classes. A thread in here is doing work on behalf of whatever
+     * is further down its stack (the mod whose code needed the class), so these are stepped over
+     * when looking for who to charge. Charging the loader itself would hide every mod behind it.
+     */
+    private static final List<String> LOADER = List.of(
+        "cpw.mods.securejarhandler", "cpw.mods.modlauncher", "cpw.mods.bootstraplauncher", "fml_loader",
+        "org.spongepowered.mixin", "mixinextras", "org.objectweb.asm", "org.objectweb.asm.tree",
+        "org.objectweb.asm.commons", "org.objectweb.asm.util", "org.objectweb.asm.tree.analysis",
+        "org.apache.logging.log4j", "org.apache.logging.log4j.core", "com.google.common", "com.google.gson"
+    );
+
+    /** Charged when a thread is loading classes and no mod is on its stack to charge instead. */
+    private static final String LOADING = "(class loading, no mod on the stack)";
+
+    /**
+     * Methods a thread sits in while it waits for something to arrive: a listener in accept(), a
+     * selector with nothing ready. That is an idle thread, not a launch being held up, and counting
+     * it as time "on the network" would bury the real waits.
+     */
+    private static final List<String> IDLE_WAITS = List.of(
+        "accept", "accept0", "implAccept", "select", "selectNow", "doSelect", "poll", "poll0", "wait",
+        "epollWait", "dequeueStatus", "park", "getQueuedCompletionStatus", "read0Blocking"
+    );
+
+    /** Everything one thread was seen doing, kept apart until the end so idle threads can be dropped whole. */
+    private static final class ThreadStats {
+        long samples;
+        long netSamples;
+        final Map<String, long[]> owners = new HashMap<>(); // owner -> {samples, network samples}
+    }
+
+    private static final Map<Long, ThreadStats> THREADS = new ConcurrentHashMap<>();
     private static final AtomicLong TICKS = new AtomicLong();
     private static final AtomicLong SNAPSHOT_NANOS = new AtomicLong();
 
@@ -114,7 +145,11 @@ public final class StartupProfiler {
             if (stack.length == 0) {
                 continue;
             }
+            if (idle(stack)) {
+                continue;
+            }
             boolean onNetwork = false;
+            boolean inLoader = false;
             String owner = null;
             for (StackTraceElement frame : stack) {
                 if (!onNetwork && isNetwork(frame.getClassName())) {
@@ -122,7 +157,9 @@ public final class StartupProfiler {
                 }
                 if (owner == null) {
                     String module = frame.getModuleName();
-                    if (isAttributable(module)) {
+                    if (module != null && LOADER.contains(module)) {
+                        inLoader = true;
+                    } else if (isAttributable(module)) {
                         owner = module;
                     }
                 }
@@ -131,16 +168,34 @@ public final class StartupProfiler {
                 }
             }
             if (owner == null) {
-                owner = onNetwork ? "(game or loader)" : null;
+                owner = inLoader ? LOADING : onNetwork ? "(game or loader)" : null;
             }
             if (owner == null) {
                 continue;
             }
-            CPU.computeIfAbsent(owner, k -> new AtomicLong()).incrementAndGet();
+            ThreadStats stats = THREADS.computeIfAbsent(thread.threadId(), k -> new ThreadStats());
+            stats.samples++;
+            long[] counts = stats.owners.computeIfAbsent(owner, k -> new long[2]);
+            counts[0]++;
             if (onNetwork) {
-                NET.computeIfAbsent(owner, k -> new AtomicLong()).incrementAndGet();
+                stats.netSamples++;
+                counts[1]++;
             }
         }
+    }
+
+    /** True when the top of the stack is a thread waiting for input that may never come. */
+    private static boolean idle(StackTraceElement[] stack) {
+        int depth = Math.min(stack.length, 6);
+        for (int i = 0; i < depth; i++) {
+            StackTraceElement frame = stack[i];
+            String cls = frame.getClassName();
+            if ((cls.startsWith("sun.nio.ch.") || cls.startsWith("java.net.") || cls.startsWith("sun.net.")
+                || cls.startsWith("jdk.internal.misc.") || cls.startsWith("io.netty.")) && IDLE_WAITS.contains(frame.getMethodName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isNetwork(String className) {
@@ -177,6 +232,12 @@ public final class StartupProfiler {
         sampler = null;
         if (t != null) {
             t.interrupt();
+            try {
+                // Let a sample that is in flight finish, so the per-thread tallies are not read mid-update.
+                t.join(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
         long ticks = TICKS.get();
         if (ticks < 8) {
@@ -185,8 +246,22 @@ public final class StartupProfiler {
 
         double sampleSeconds = intervalMs / 1000.0;
         double wallSeconds = (System.nanoTime() - startedAtNanos) / 1_000_000_000.0;
-        Map<String, Long> cpu = snapshot(CPU);
-        Map<String, Long> net = snapshot(NET);
+        Map<String, Long> cpu = new HashMap<>();
+        Map<String, Long> net = new HashMap<>();
+        for (ThreadStats stats : THREADS.values()) {
+            // A thread that spent nearly all of a long life inside a socket is a connection being kept
+            // open (a chat link, a metrics client), not something the launch was waiting for.
+            boolean keptOpen = stats.samples >= ticks / 2 && stats.netSamples * 10 >= stats.samples * 9;
+            if (keptOpen) {
+                continue;
+            }
+            for (Map.Entry<String, long[]> e : stats.owners.entrySet()) {
+                cpu.merge(e.getKey(), e.getValue()[0], Long::sum);
+                if (e.getValue()[1] > 0) {
+                    net.merge(e.getKey(), e.getValue()[1], Long::sum);
+                }
+            }
+        }
 
         double totalThreadSeconds = 0.0;
         for (long v : cpu.values()) {
@@ -235,11 +310,4 @@ public final class StartupProfiler {
         return out;
     }
 
-    private static Map<String, Long> snapshot(Map<String, AtomicLong> counters) {
-        Map<String, Long> out = new HashMap<>();
-        for (Map.Entry<String, AtomicLong> e : counters.entrySet()) {
-            out.put(e.getKey(), e.getValue().get());
-        }
-        return out;
-    }
 }

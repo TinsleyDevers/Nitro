@@ -41,6 +41,8 @@ JEI and a few other things found on a 1000 mod pack:
   jeiVersions can switch the feature off but never fail a mixin.
 - Async JEI stands down when Just Enough Threads is installed. That mod takes over JEI's startup the
   same way, and two mods replacing one method cannot both be right.
+- The end-of-loading report also prints when the game goes straight into a world or server without
+  stopping at the main menu (quick play, join on launch). It used to wait for a title screen that never came.
 - The startup profiler works without the agent, so everyone gets the "where launch time went" table.
 - Moonlight's version range was wrong (its version is written "1.21.1-3.7.0"), which made every
   launch log its fixes as untested. Fixed; the fixes themselves were applying all along.

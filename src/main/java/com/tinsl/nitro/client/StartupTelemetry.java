@@ -52,6 +52,15 @@ public final class StartupTelemetry {
     }
 
     private static void onLoggingIn(ClientPlayerNetworkEvent.LoggingIn event) {
+        if (!menuReported) {
+            // Launched straight into a world or a server (quick play, join on launch): the title
+            // screen never opened, so this is the first point the report can be printed.
+            menuReported = true;
+            long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
+            Nitro.LOGGER.info("Nitro report: in the world {} s after JVM start, without stopping at the main menu",
+                String.format("%.1f", uptime / 1000.0));
+            onMainMenu.run();
+        }
         if (worldLoadStartNanos != 0L) {
             double seconds = (System.nanoTime() - worldLoadStartNanos) / 1_000_000_000.0;
             Nitro.LOGGER.info("Nitro report: player logged in {} s after world load started", String.format("%.1f", seconds));

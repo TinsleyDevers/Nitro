@@ -267,7 +267,9 @@ JEI to it when both are installed.
 
 `tools/MixinSweep.java` is a check for pack authors: it reads a mods folder and lists mods whose
 patches on other mods no longer fit (a method that was renamed, a call that moved), so a mass update
-can be checked before the game is started rather than one crash at a time.
+can be checked before the game is started rather than one crash at a time. `tools/LinkSweep.java` is the
+other half: it finds ordinary calls between mods that no longer resolve, and can try a jar swap on
+paper (`--without`, `--with`) before you make it.
 
 ## Building
 
