@@ -56,7 +56,9 @@ pack on Java 25 removes it with no argument at all (in the world 187 s after lau
 argument, 178 s with it). NeoForge 1.21.1 and this 1017 mod pack ran on Java 25
 without any errors that Java 21 did not also log. Launchers ask for Java 21 for this version, so
 in Prism turn on "Skip Java compatibility checks" after picking Java 25. When the argument is
-missing on Java 21, Nitro's log line and main menu notice offer both routes, Java 25 first.
+missing on Java 21, Nitro's log line and main menu notice offer both routes, Java 25 first, with
+the steps for your launcher and the path of a Java 25 already on your computer if there is one
+(Prism downloads one for newer Minecraft versions, so it often is).
 
 ## Will it work on my pack
 

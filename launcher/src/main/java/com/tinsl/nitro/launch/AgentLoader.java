@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * Picks up Nitro's JVM agent when the player has added it to the JVM arguments, and explains how to
@@ -40,6 +41,10 @@ final class AgentLoader {
     static final String PROP_STEPS = "nitro.agentSteps";
     /** Set when switching this instance to Java 25 is an option, to where that is done in the launcher. */
     static final String PROP_JAVA_STEPS = "nitro.javaSteps";
+    /** Set when a Java 25 install was found on this computer, to the program to point the launcher at. */
+    static final String PROP_JAVA_25 = "nitro.java25";
+    /** Temurin, the build Prism and most launchers download themselves. */
+    static final String JAVA_25_DOWNLOAD = "https://adoptium.net/temurin/releases/?version=25";
 
     private static Instrumentation instrumentation;
 
@@ -72,20 +77,36 @@ final class AgentLoader {
             // On Java 21 to 23 the module resolver pause is most of what the agent removes, and Java 24+
             // has that fix built in, so switching Java is the other way to get it (and measured faster).
             String javaSteps = Runtime.version().feature() < 24 ? hint.javaSteps() : null;
+            String java25 = null;
             if (javaSteps != null) {
                 System.setProperty(PROP_JAVA_STEPS, javaSteps);
+                // Most players already have one (Prism downloads Java 25 for newer Minecraft versions), and
+                // "use this one" is a much smaller step than "download Java and find where it went".
+                try {
+                    List<JavaFinder.Install> installs = JavaFinder.find(gameDir);
+                    if (!installs.isEmpty()) {
+                        java25 = installs.get(0).executable().toString();
+                        System.setProperty(PROP_JAVA_25, java25);
+                    }
+                } catch (RuntimeException e) {
+                    LOGGER.debug("Nitro: looking for a Java 25 install failed: {}", e.toString());
+                }
             }
             String error = System.getProperty(PROP_ERROR);
             if (error != null) {
                 LOGGER.warn("Nitro: the agent is in the JVM arguments but did not start ({}). Launch patches are off.", error);
             } else if (javaSteps != null) {
                 String nl = System.lineSeparator();
-                LOGGER.warn("Nitro: this launch included a long pause before any mod loaded: Java {}'s module resolver is slow with "
-                    + "hundreds of mod jars. Two ways to remove it:{}"
+                String where = java25 != null ? "Java 25 is already on this computer: " + java25
+                    : "Get Java 25 from " + JAVA_25_DOWNLOAD;
+                LOGGER.warn("Nitro: this launch is about to pause before any mod loads: Java {}'s module resolver is slow with "
+                    + "hundreds of mod jars (minutes on a 1000 mod pack). Two ways to remove it:{}"
                     + "  1. Run this instance on Java 25, which has the fix built in and needs nothing else (fastest). {}: {}{}"
+                    + "     {}{}"
                     + "  2. Or keep this Java and add this line to the JVM arguments once (it stays valid when Nitro updates):{}"
                     + "     {}{}     {}: {}{}Everything else in Nitro is running either way.",
-                    Runtime.version().feature(), nl, hint.launcher(), javaSteps, nl, nl, argument, nl, hint.launcher(), hint.steps(), nl);
+                    Runtime.version().feature(), nl, hint.launcher(), javaSteps, nl, where, nl, nl, argument, nl, hint.launcher(),
+                    hint.steps(), nl);
             } else if (Runtime.version().feature() >= 24) {
                 LOGGER.info("Nitro: running on Java {}, which already has the fast module resolver, so the Nitro agent is "
                     + "optional here (it adds Mixin and jar lookup patches worth about a second on a 1000 mod pack). "
@@ -110,6 +131,9 @@ final class AgentLoader {
             if (Boolean.getBoolean(PROP_PATCHED)) {
                 LOGGER.info("Nitro: agent loaded from the JVM arguments ({} ms); hot-patched java.lang.module.Resolver#makeGraph "
                     + "with the JDK 25 algorithm (removes the multi-minute module resolution pause caused by 1000+ automatic modules)", ms);
+                LOGGER.info("Nitro: running this instance on Java 25 is faster still: on a 1017 mod pack it reached the menu in "
+                    + "100 s on Java 25, against 134 s on Java 21 with the agent (this launch: Java {}). {}: {}", feature, hint.launcher(),
+                    hint.javaSteps() != null ? hint.javaSteps() : "set this instance's Java to a Java 25 installation.");
             } else if (feature >= 24) {
                 LOGGER.info("Nitro: agent loaded from the JVM arguments ({} ms); Java {} already ships the fast module resolver", ms, feature);
             } else {

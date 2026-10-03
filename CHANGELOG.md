@@ -59,6 +59,16 @@ Faster without the argument:
   the same 1017 mod pack: 273 s to the menu on Java 21 without the argument, 134 s with it, 101 s on
   Java 25 without it. On Java 24 and later the notice is not shown at all, since the argument only
   adds about a second there.
+- The main menu notice is now two tabs, "Switch to Java 25" (first, the fastest) and "Keep Java 21"
+  (the argument). It says how long this launch actually waited on Java 21 before any mod loaded,
+  measured around the module layer build, and gives the steps for the detected launcher.
+- Nitro looks for a Java 25 that is already on the computer (launcher runtimes such as Prism's own
+  downloads, the official launcher's, Modrinth's and CurseForge's, plus the usual Temurin, Microsoft,
+  Zulu, Corretto and Gradle folders) by reading each install's release file. When it finds one, the
+  notice and the log show its path with a copy button; when it finds none, a button opens the
+  Temurin download page. Most Prism users already have one: Prism downloads Java 25 for newer
+  Minecraft versions.
+- With the argument on Java 21, the log also mentions that Java 25 was faster still (100 s against 134 s).
 - Folder packs keep a snapshot (directoryPackSnapshot). Sawmill's ~29,000 cached recipe files took
   11 to 13 s to read on most world joins, every open going past the antivirus. Nitro now keeps one
   compressed copy per large folder pack in .nitro/packs and takes each file from it while its size

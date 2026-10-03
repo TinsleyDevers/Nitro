@@ -23,6 +23,7 @@ import java.util.Set;
  */
 public final class NitroTransformationService implements ITransformationService {
     private static final Logger LOGGER = LogManager.getLogger("Nitro");
+    static final String PROP_LAYER_START = "nitro.layerStartNanos";
     private boolean envelopeCompatibility;
 
     @Override
@@ -162,6 +163,12 @@ public final class NitroTransformationService implements ITransformationService 
 
     @Override
     public @NotNull List<? extends ITransformer<?>> transformers() {
+        // ModLauncher asks for transformers right before it builds the module layer that holds the
+        // mods, which is where Java 21's slow resolver runs. The mod side reads this back to say how
+        // long that took (see NitroMixinPlugin), so the advice to fix it comes with this launch's number.
+        if (System.getProperty(PROP_LAYER_START) == null) {
+            System.setProperty(PROP_LAYER_START, Long.toString(System.nanoTime()));
+        }
         return envelopeCompatibility ? List.of(new EnvelopeJeiCompatibility()) : List.of();
     }
 }

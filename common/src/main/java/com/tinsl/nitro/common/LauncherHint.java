@@ -33,12 +33,17 @@ public record LauncherHint(String launcher, String steps, Path agentFile, boolea
      */
     public String javaSteps() {
         return switch (launcher) {
-            case "Prism Launcher", "MultiMC" -> "Edit the instance, Settings, Java tab: choose a Java 25 installation (Prism's "
-                + "Download Java button can fetch one) and tick Skip Java compatibility checks, since Minecraft 1.21.1 asks for Java 21.";
-            case "the Modrinth App" -> "Open the instance's settings, Java and memory, and set the Java installation to a Java 25 one.";
-            case "ATLauncher" -> "Open this instance's Settings and set the Java path to a Java 25 installation.";
-            case "the Minecraft Launcher" -> "Installations, the three dots on this installation, Edit, More options: set Java executable "
-                + "to a Java 25 javaw.";
+            case "Prism Launcher" -> "Right-click the instance, Edit, Settings, Java tab. Tick Java installation, click Auto-detect "
+                + "and pick a 25 (Download Java fetches one if none is listed), tick Skip Java compatibility checks (1.21.1 "
+                + "asks for 21, but runs on 25), then close the window and restart the game.";
+            case "MultiMC" -> "Right-click the instance, Edit Instance, Settings, Java tab. Tick Java installation, click Auto-detect "
+                + "or Browse and pick a Java 25, tick Skip Java compatibility checks, then restart the game.";
+            case "the Modrinth App" -> "Open the instance, the settings button, Java and memory: turn on Custom Java installation and "
+                + "pick a Java 25 (Detect or Browse), then restart the game.";
+            case "ATLauncher" -> "On the Instances tab, this instance's Settings, Java/Minecraft: set Java Path to a Java 25, then "
+                + "restart the game.";
+            case "the Minecraft Launcher" -> "Installations, the three dots on this installation, Edit, More options: set Java "
+                + "executable to a Java 25 javaw.exe, then restart the game.";
             case "a dedicated server" -> "Start the server with a Java 25 java instead of Java 21.";
             case "the CurseForge app" -> null;
             default -> "Set this instance to use a Java 25 installation in your launcher's Java settings.";

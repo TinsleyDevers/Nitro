@@ -23,8 +23,29 @@ public final class NitroMixinPlugin implements IMixinConfigPlugin {
     private NitroSettings settings;
     private boolean jeiActive;
 
+    /**
+     * Mixin configs load right after the module layer that holds the mods is built, and Nitro's
+     * launcher half marked the moment just before it. The difference is how long the module resolver
+     * took on this launch: seconds on Java 24+ or with the agent, minutes on Java 21 without it. The
+     * Java 25 notice quotes it.
+     */
+    private static void recordLayerPause() {
+        String start = System.getProperty("nitro.layerStartNanos");
+        if (start == null || System.getProperty("nitro.layerPauseMillis") != null) {
+            return;
+        }
+        try {
+            long millis = (System.nanoTime() - Long.parseLong(start)) / 1_000_000L;
+            System.setProperty("nitro.layerPauseMillis", Long.toString(millis));
+            LOGGER.info("Nitro: building the mod module layer took {} s", String.format("%.1f", millis / 1000.0));
+        } catch (NumberFormatException ignored) {
+            // not ours to worry about
+        }
+    }
+
     @Override
     public void onLoad(String mixinPackage) {
+        recordLayerPause();
         settings = NitroSettings.load(FMLPaths.GAMEDIR.get());
         ModTargets.configure(settings.strictVersions, settings.jeiVersions);
         String jeiRival = settings.asyncJei ? ModTargets.conflictFor("asyncJei") : null;
