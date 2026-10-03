@@ -38,6 +38,8 @@ final class AgentLoader {
     /** Which launcher Nitro thinks started the game, and where the argument goes in it. */
     static final String PROP_LAUNCHER = "nitro.agentLauncher";
     static final String PROP_STEPS = "nitro.agentSteps";
+    /** Set when switching this instance to Java 25 is an option, to where that is done in the launcher. */
+    static final String PROP_JAVA_STEPS = "nitro.javaSteps";
 
     private static Instrumentation instrumentation;
 
@@ -67,9 +69,27 @@ final class AgentLoader {
             System.setProperty(PROP_HINT, argument);
             System.setProperty(PROP_LAUNCHER, hint.launcher());
             System.setProperty(PROP_STEPS, hint.steps());
+            // On Java 21 to 23 the module resolver pause is most of what the agent removes, and Java 24+
+            // has that fix built in, so switching Java is the other way to get it (and measured faster).
+            String javaSteps = Runtime.version().feature() < 24 ? hint.javaSteps() : null;
+            if (javaSteps != null) {
+                System.setProperty(PROP_JAVA_STEPS, javaSteps);
+            }
             String error = System.getProperty(PROP_ERROR);
             if (error != null) {
                 LOGGER.warn("Nitro: the agent is in the JVM arguments but did not start ({}). Launch patches are off.", error);
+            } else if (javaSteps != null) {
+                String nl = System.lineSeparator();
+                LOGGER.warn("Nitro: this launch included a long pause before any mod loaded: Java {}'s module resolver is slow with "
+                    + "hundreds of mod jars. Two ways to remove it:{}"
+                    + "  1. Run this instance on Java 25, which has the fix built in and needs nothing else (fastest). {}: {}{}"
+                    + "  2. Or keep this Java and add this line to the JVM arguments once (it stays valid when Nitro updates):{}"
+                    + "     {}{}     {}: {}{}Everything else in Nitro is running either way.",
+                    Runtime.version().feature(), nl, hint.launcher(), javaSteps, nl, nl, argument, nl, hint.launcher(), hint.steps(), nl);
+            } else if (Runtime.version().feature() >= 24) {
+                LOGGER.info("Nitro: running on Java {}, which already has the fast module resolver, so the Nitro agent is "
+                    + "optional here (it adds Mixin and jar lookup patches worth about a second on a 1000 mod pack). "
+                    + "To use it anyway: {}", Runtime.version().feature(), argument);
             } else {
                 String nl = System.lineSeparator();
                 LOGGER.warn("Nitro: launch patches are off because the Nitro agent is not in the JVM arguments. "

@@ -23,6 +23,28 @@ import java.util.Locale;
 public record LauncherHint(String launcher, String steps, Path agentFile, boolean relative, boolean shared) {
     public static final String AGENT_FILE = "nitro-agent.jar";
 
+    /**
+     * Where to switch this instance to Java 25 in this launcher, or null when the launcher picks Java
+     * itself and the JVM argument is the only route.
+     *
+     * Java 24 and later ship the module resolver fix, so on Java 25 the long pause before mods load is
+     * gone with no argument at all. Measured on a 1017 mod 1.21.1 pack: 101 s to the menu on Java 25
+     * without the argument, 134 s on Java 21 with it, 273 s on Java 21 without it.
+     */
+    public String javaSteps() {
+        return switch (launcher) {
+            case "Prism Launcher", "MultiMC" -> "Edit the instance, Settings, Java tab: choose a Java 25 installation (Prism's "
+                + "Download Java button can fetch one) and tick Skip Java compatibility checks, since Minecraft 1.21.1 asks for Java 21.";
+            case "the Modrinth App" -> "Open the instance's settings, Java and memory, and set the Java installation to a Java 25 one.";
+            case "ATLauncher" -> "Open this instance's Settings and set the Java path to a Java 25 installation.";
+            case "the Minecraft Launcher" -> "Installations, the three dots on this installation, Edit, More options: set Java executable "
+                + "to a Java 25 javaw.";
+            case "a dedicated server" -> "Start the server with a Java 25 java instead of Java 21.";
+            case "the CurseForge app" -> null;
+            default -> "Set this instance to use a Java 25 installation in your launcher's Java settings.";
+        };
+    }
+
     /** The JVM argument, quoted when the path has spaces (launchers strip the quotes). */
     public String argument(Path gameDir) {
         // Always forward slashes. Java takes them on Windows, and launchers do not take the other kind:

@@ -26,7 +26,10 @@ public final class AgentNotice {
     private AgentNotice() {}
 
     public static void register(NitroSettings settings) {
-        if (!settings.agentNotice) {
+        // On Java 24+ the module resolver fix is built in, and the agent's remaining loader patches
+        // measured within a second of nothing on a 1017 mod pack (100 s to the menu with it, 101 s
+        // without). Not worth a screen asking the player to change anything.
+        if (!settings.agentNotice || Runtime.version().feature() >= 24) {
             return;
         }
         // Lowest priority so the startup timing sees the real title screen before this swaps it out.
@@ -43,14 +46,12 @@ public final class AgentNotice {
             }
             String launcher = System.getProperty("nitro.agentLauncher", "your launcher");
             String steps = System.getProperty("nitro.agentSteps", "Add it to this instance's JVM arguments and restart.");
-            event.setNewScreen(new NoticeScreen(title, argument, launcher, steps));
+            event.setNewScreen(new NoticeScreen(title, argument, launcher, steps, System.getProperty("nitro.javaSteps")));
         });
     }
 
     private static final class NoticeScreen extends Screen {
         private static final int PANEL_WIDTH = 300;
-        private static final Component BODY = Component.literal(body(Runtime.version().feature()));
-
         static String body(int java) {
             String why = java >= 24
                 ? "Java " + java + " already skips the long module pause, but Nitro's other launch patches run "
@@ -65,18 +66,34 @@ public final class AgentNotice {
         private final String argumentText;
         private Component status = Component.empty();
         private final Component steps;
+        private final Component body;
         private int bodyHeight;
         private int argumentHeight;
         private int stepsHeight;
         private int panelHeight;
 
-        NoticeScreen(Screen parent, String argument, String launcher, String steps) {
-            super(Component.literal("Nitro: one step left"));
+        /**
+         * @param javaSteps where to switch this instance to Java 25 in the detected launcher, or null when
+         *                  that is not an option (already on Java 24+, or a launcher that picks Java itself)
+         */
+        NoticeScreen(Screen parent, String argument, String launcher, String steps, String javaSteps) {
+            super(Component.literal("Nitro: faster launches"));
             this.parent = parent;
             this.argumentText = argument;
             this.argument = Component.literal(argument);
             // Capitalised for the start of the sentence ("the CurseForge app" -> "The CurseForge app").
             String who = launcher.isEmpty() ? launcher : Character.toUpperCase(launcher.charAt(0)) + launcher.substring(1);
+            int java = Runtime.version().feature();
+            if (javaSteps != null) {
+                // Java 25 first: it removes the module resolver pause with nothing to add, and measured faster
+                // than Java 21 with the agent. The argument stays as the option for keeping this Java.
+                this.body = Component.literal("Before any mod loaded, this launch waited on Java " + java + "'s module "
+                    + "resolver, which is slow with hundreds of mods. Fastest fix: run this instance on Java 25, which has "
+                    + "the fix built in. " + who + ": " + javaSteps + " Or keep Java " + java + " and add this line to the "
+                    + "JVM arguments once:");
+            } else {
+                this.body = Component.literal(body(java));
+            }
             this.steps = Component.literal(who + ": " + steps + " Everything else in Nitro is already running.");
         }
 
@@ -95,7 +112,7 @@ public final class AgentNotice {
 
         @Override
         protected void init() {
-            bodyHeight = GuiKit.drawWrapped(null, font, BODY, 0, 0, PANEL_WIDTH - 20, 0, false);
+            bodyHeight = GuiKit.drawWrapped(null, font, body, 0, 0, PANEL_WIDTH - 20, 0, false);
             argumentHeight = GuiKit.drawWrapped(null, font, argument, 0, 0, PANEL_WIDTH - 28, 0, false);
             stepsHeight = GuiKit.drawWrapped(null, font, steps, 0, 0, PANEL_WIDTH - 20, 0, false);
             int buttonsTop = argumentTop() + argumentHeight + 8 + 6 + stepsHeight + 8;
@@ -128,7 +145,7 @@ public final class AgentNotice {
             int y = panelY();
             GuiKit.drawRaisedPanel(g, x, y, PANEL_WIDTH, panelHeight);
             g.drawString(font, title, x + 10, y + 8, GuiKit.TITLE_GRAY, false);
-            GuiKit.drawWrapped(g, font, BODY, x + 10, y + 22, PANEL_WIDTH - 20, GuiKit.DARK_GRAY, true);
+            GuiKit.drawWrapped(g, font, body, x + 10, y + 22, PANEL_WIDTH - 20, GuiKit.DARK_GRAY, true);
             int boxTop = y + argumentTop();
             GuiKit.drawInset(g, x + 10, boxTop, PANEL_WIDTH - 20, argumentHeight + 8);
             GuiKit.drawWrapped(g, font, argument, x + 14, boxTop + 4, PANEL_WIDTH - 28, GuiKit.WHITE, true);
