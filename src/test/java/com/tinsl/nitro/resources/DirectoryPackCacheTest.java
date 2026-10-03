@@ -91,6 +91,15 @@ class DirectoryPackCacheTest {
    assertEquals("{\"n\":1005}", read(pack, "data/test/recipe/r5.json"));
   } finally { PackSnapshot.awaitWrites(); DirectoryPackCache.useSnapshotDir(null); }
  }
+ @Test void lookupsIgnoreCaseWhereTheFileSystemDoes() throws Exception {
+  org.junit.jupiter.api.Assumptions.assumeTrue(System.getProperty("os.name", "").toLowerCase().contains("win"));
+  Files.createDirectories(root.resolve("data/test/structure"));
+  Files.writeString(root.resolve("data/test/structure/MyHouse.nbt"), "house");
+  var pack = pack(); var cache = DirectoryPackCache.get(pack, root);
+  assertEquals("house", new String(cache.contents("data/test/structure/myhouse.nbt")));
+  assertNull(cache.contents("data/test/structure/otherhouse.nbt"));
+  DirectoryPackCache.invalidate(pack);
+ }
  @Test void oversizedFilesFallBackAndClientAssetsAreNotRead() throws Exception {
   Files.createDirectories(root.resolve("data/test"));
   Files.createDirectories(root.resolve("assets/test"));

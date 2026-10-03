@@ -19,9 +19,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  *
  * This mixin turns the cache lazy: the reload pass only marks states as stale, and the shape is
  * computed the first time a state's culling shape is actually requested (during chunk meshing,
- * where the model is loaded anyway). Same values, same code path, just on demand. Two threads
- * asking for the same state at the same moment may both compute it; the computation is idempotent
- * and the result is a single reference assignment, so that is harmless.
+ * where the model is loaded anyway). Same values, same code path, just on demand.
+ *
+ * Chunk meshing runs on several threads, and MoreCulling's computation stores a new, still empty
+ * array in the field before it fills the six faces. Two threads computing the same state at once
+ * could therefore hand one of them an empty face and crash the chunk builder, so the first use of a
+ * state is computed by one thread at a time (per state; other states are not held up), and the
+ * ready flag is only set once the array is complete.
  *
  * Applies after MoreCulling's own mixins (priority), which is what makes its merged methods
  * available as injection targets.
@@ -48,13 +52,17 @@ public abstract class MoreCullingLazyShapeMixin {
     @Inject(method = "moreculling$getFaceCullingShape", at = @At("HEAD"), remap = false)
     private void nitro$computeShapeOnDemand(Direction face, CallbackInfoReturnable<?> cir) {
         if (!nitro$cullShapeReady) {
-            NITRO_COMPUTING.set(Boolean.TRUE);
-            try {
-                moreculling$initShapeCache();
-            } finally {
-                NITRO_COMPUTING.set(Boolean.FALSE);
+            synchronized (this) {
+                if (!nitro$cullShapeReady) {
+                    NITRO_COMPUTING.set(Boolean.TRUE);
+                    try {
+                        moreculling$initShapeCache();
+                    } finally {
+                        NITRO_COMPUTING.set(Boolean.FALSE);
+                    }
+                    nitro$cullShapeReady = true;
+                }
             }
-            nitro$cullShapeReady = true;
         }
     }
 }

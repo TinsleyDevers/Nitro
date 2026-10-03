@@ -69,6 +69,22 @@ Faster without the argument:
   Temurin download page. Most Prism users already have one: Prism downloads Java 25 for newer
   Minecraft versions.
 - With the argument on Java 21, the log also mentions that Java 25 was faster still (100 s against 134 s).
+
+Fixes from a full read through the code:
+
+- The lazy MoreCulling shapes could hand a chunk builder thread an empty face and crash it: MoreCulling
+  stores its new array before filling it, and two threads could compute the same block state at once.
+  The first use of each state is now computed by one thread at a time.
+- The Moonlight write hook now only applies together with the accessor it reads through, so a future
+  Moonlight that renames those fields switches both off instead of breaking pack generation.
+- The folder pack cache matched file names case for case. Windows and macOS do not, and vanilla
+  reads through the file system, so a datapack file named MyHouse.nbt was found without Nitro and
+  missed with it. Lookups now fall back to ignoring case on those systems (only for packs that
+  have upper case names at all).
+- With the agent, a resource name written with a leading slash, "./" or ".." skipped jars it should
+  have searched. Those names now search every jar, as without Nitro.
+- The Envelope and JEI check at launch can no longer stop the game from starting if the mods folder
+  cannot be read.
 - Folder packs keep a snapshot (directoryPackSnapshot). Sawmill's ~29,000 cached recipe files took
   11 to 13 s to read on most world joins, every open going past the antivirus. Nitro now keeps one
   compressed copy per large folder pack in .nitro/packs and takes each file from it while its size

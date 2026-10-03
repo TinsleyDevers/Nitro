@@ -104,9 +104,33 @@ public final class DirectoryPackCache {
             this.dirs = dirs;
         }
 
+        /**
+         * Windows and macOS find "MyHouse.nbt" when asked for "myhouse.nbt", and vanilla reads packs
+         * through the file system, so a pack relying on that works there. Keys are compared exactly
+         * first; only a pack that has upper case names at all gets the second, case-blind lookup.
+         */
+        private static final boolean CASE_BLIND_FILES = caseBlindFileSystem();
+        private volatile NavigableMap<String, byte[]> folded;
+        private boolean hasUpperCase;
+
         /** @return contents, null if the file does not exist, or {@code TOO_LARGE} if it must be read from disk. */
         public byte[] contents(String relative) {
-            return files.get(relative);
+            byte[] bytes = files.get(relative);
+            if (bytes != null || !CASE_BLIND_FILES || !hasUpperCase) {
+                return bytes;
+            }
+            NavigableMap<String, byte[]> blind = folded;
+            if (blind == null) {
+                blind = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                blind.putAll(files);
+                folded = blind;
+            }
+            return blind.get(relative);
+        }
+
+        private static boolean caseBlindFileSystem() {
+            String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+            return os.contains("win") || os.contains("mac");
         }
 
         public boolean isTooLarge(byte[] contents) {
@@ -239,6 +263,12 @@ public final class DirectoryPackCache {
                 pack.packId(), files.size(), total.get() >> 10, (System.nanoTime() - start) / 1_000_000L,
                 snapshotFile == null ? "" : " (" + reused.get() + " from snapshot, " + opened.get() + " opened)");
             Cache cache = new Cache(files, dirs);
+            for (String name : files.keySet()) {
+                if (!name.equals(name.toLowerCase(java.util.Locale.ROOT))) {
+                    cache.hasUpperCase = true;
+                    break;
+                }
+            }
             long bytes = total.get();
             cache.cleanable = CLEANER.register(cache, () -> RETAINED.addAndGet(-bytes));
             return cache;

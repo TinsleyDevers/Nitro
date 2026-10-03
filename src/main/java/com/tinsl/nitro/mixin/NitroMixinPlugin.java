@@ -96,7 +96,9 @@ public final class NitroMixinPlugin implements IMixinConfigPlugin {
             return ModTargets.check("moonlight.cachedAccessor", settings.directoryPackCache).active();
         }
         if (mixinClassName.endsWith("MoonlightCacheWriteMixin")) {
-            return ModTargets.check("moonlight.cacheWrite", settings.directoryPackCache).active();
+            // It reads Moonlight's fields through the accessor, so it can only apply when that did.
+            return ModTargets.check("moonlight.cacheWrite", settings.directoryPackCache).active()
+                && ModTargets.check("moonlight.cachedAccessor", settings.directoryPackCache).active();
         }
         if (mixinClassName.contains(".resources.")) {
             return settings.resourceIndex || settings.directoryPackCache;

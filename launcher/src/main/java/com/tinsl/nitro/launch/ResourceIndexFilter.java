@@ -57,10 +57,20 @@ final class ResourceIndexFilter implements NitroHooks.ResourceFilter {
                 indexes.put(loader, index);
             }
         }
-        if (index.keys == null) {
+        if (index.keys == null || !plainRelative(name)) {
             return roots.values();
         }
         return index.candidates(name);
+    }
+
+    /**
+     * The index is keyed by the jars' own entry names ("assets/x"). A name in any other form
+     * ("/assets/x/y.json", "./a", "a/../b", backslashes) is one Secure Jar Handler may still resolve,
+     * so those are searched in every jar exactly as without Nitro.
+     */
+    static boolean plainRelative(String name) {
+        return !name.startsWith("/") && !name.startsWith("./") && !name.contains("//") && !name.contains("/./")
+            && !name.contains("..") && name.indexOf('\\') < 0;
     }
 
     private static final class Index {

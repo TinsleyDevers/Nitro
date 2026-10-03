@@ -40,7 +40,12 @@ public final class NitroTransformationService implements ITransformationService 
         // does the installed JEI have the moved injection point the adapter targets". That second part
         // is read out of JEI's own transfer handler rather than guessed from a file name: JEI 19.53
         // through at least 19.57 all have it, and a file-name check went quiet on every JEI update.
-        envelopeCompatibility = hasJar(gameDir, "envelope-") && jeiHasMovedTransferHandler(gameDir);
+        try {
+            envelopeCompatibility = hasJar(gameDir, "envelope-") && jeiHasMovedTransferHandler(gameDir);
+        } catch (RuntimeException e) {
+            // Nothing in here may stop the game from starting; without the adapter Envelope behaves as it always did.
+            LOGGER.warn("Nitro: could not check Envelope and JEI; leaving Envelope alone: {}", e.toString());
+        }
         try {
             NitroSettings settings = NitroSettings.load(gameDir);
             reportConfigSources(settings);
