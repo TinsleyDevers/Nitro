@@ -40,8 +40,23 @@ nothing and the game starts normally. Two things to know:
 
 Without the argument, everything else in Nitro (resources, model loading, async JEI, the world join
 fixes) still runs. Java 24 and later already have the module resolver fix built in, so on those the
-argument adds the loader patches only. NeoForge 1.21.1 booted fine on Java 25 in
-testing, but that is a smaller test than a 1000 mod pack, so treat it as worth a try, not a promise.
+argument adds the loader patches only, about a second.
+
+### With or without the argument (1017 mods, same PC, launch to main menu)
+
+| | without the argument | with it |
+|---|---|---|
+| Java 21 (what 1.21.1 asks for) | 273 s | 134 s |
+| Java 25 | 101 s | 100 s |
+
+The gap on Java 21 is one thing: Java 21's module resolver takes about 140 s to link 1000 mods,
+and Java 24 fixed it. A mod cannot change that code without the agent (ModLauncher calls the JDK
+directly, before any mod runs), so on Java 21 the argument is the only way around it. Running the
+pack on Java 25 removes it with no argument at all (in the world 187 s after launch without the
+argument, 178 s with it). NeoForge 1.21.1 and this 1017 mod pack ran on Java 25
+without any errors that Java 21 did not also log. Launchers ask for Java 21 for this version, so
+in Prism turn on "Skip Java compatibility checks" after picking Java 25. When the argument is
+missing on Java 21, Nitro's log line and main menu notice offer both routes, Java 25 first.
 
 ## Will it work on my pack
 
@@ -80,6 +95,9 @@ when it is not, so "is this mod doing anything on my pack" is one search in the 
    JavaCPP bootstrap alone did hundreds of such lookups (13 s in one constructor). A per-layer jar
    directory index (built once from the zip central directories, ~100 ms) narrows each lookup to the
    jars that contain the directory. Fallback to full probing for anything that cannot be indexed.
+   With or without the agent, WaterMedia's FFmpeg load (about 10 s) also runs on a background
+   thread now (`asyncWaterMedia`) instead of holding up the end of mod construction; any WaterMedia
+   call that needs FFmpeg waits for it.
 
 6. **Transformed-class cache (experimental, off by default).** Every class the game loads passes through ModLauncher's
    transformer pipeline: launch plugins, Mixin (600+ configs here), coremods, access transformers,
@@ -146,7 +164,11 @@ only method bodies are swapped for delegations to hook classes on the bootstrap 
     file on every data pack reload; each open costs milliseconds when antivirus inspects it (70 s
     of an otherwise idle reload was measured). Each such pack is now read once into memory with all
     cores and served from there; when Moonlight regenerates a pack, the bytes it writes are reused
-    directly. Vanilla directory packs and Moonlight's own pack class are both covered.
+    directly. Vanilla directory packs and Moonlight's own pack class are both covered. Reading
+    with all cores still took 11 to 13 s for Sawmill's pack on most world joins, so large folder
+    packs also keep a compressed snapshot in `.nitro/packs`: a file whose size and modification time
+    are unchanged comes from it, and only changed files are opened. Sawmill's pack now loads in
+    83 ms.
 16. **Farmer's Delight tool-ability ingredients** ("any knife") resolved their item list by making a
     stack for every one of 100k items, once per recipe using them, and the recipe pipeline (KubeJS,
     JEI, Almost Unified) asked each of them. Resolved once per ability and shared.
@@ -237,6 +259,8 @@ the CPU go while chunks generate:
 | `parallelRecipes` | false | experimental parallel recipe JSON decoding |
 | `resourceIndex` | true | answer resource-pack misses from an in-memory index |
 | `directoryPackCache` | true | read folder-based data packs (datapacks/, KubeJS, Moonlight caches) into memory per reload |
+| `directoryPackSnapshot` | true | keep a compressed copy of large folder packs in `.nitro/packs`; unchanged files come from it instead of being opened |
+| `asyncWaterMedia` | true | load WaterMedia's FFmpeg libraries on a background thread instead of in its mod constructor |
 | `modelVisibilityBuiltin` | true | apply the built-in verified list (dragonlib, vanillabackport, goety, alexsmobs) |
 | `modelVisibilityRestrict` | dragonlib | additional mod ids limited to own+dependency models |
 | `modelLocationCache` | true | share the model universe between the two model events / Puzzles Lib |

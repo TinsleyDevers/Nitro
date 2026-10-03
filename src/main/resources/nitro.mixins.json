@@ -37,7 +37,8 @@
     "jei.JeiStarterMixin",
     "jei.ErrorUtilMixin",
     "random.LegacyRandomSourceMixin",
-    "random.C2meCheckedRandomMixin"
+    "random.C2meCheckedRandomMixin",
+    "compat.WaterMediaFFmpegMixin"
   ],
   "injectors": {
     "defaultRequire": 0

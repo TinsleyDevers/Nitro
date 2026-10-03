@@ -52,6 +52,28 @@ JEI and a few other things found on a 1000 mod pack:
 - Moonlight's version range was wrong (its version is written "1.21.1-3.7.0"), which made every
   launch log its fixes as untested. Fixed; the fixes themselves were applying all along.
 
+Faster without the argument:
+
+- On Java 21 without the argument, the log line and the main menu notice now lead with running the
+  instance on Java 25 (with the steps for the detected launcher), and offer the argument second. On
+  the same 1017 mod pack: 273 s to the menu on Java 21 without the argument, 134 s with it, 101 s on
+  Java 25 without it. On Java 24 and later the notice is not shown at all, since the argument only
+  adds about a second there.
+- Folder packs keep a snapshot (directoryPackSnapshot). Sawmill's ~29,000 cached recipe files took
+  11 to 13 s to read on most world joins, every open going past the antivirus. Nitro now keeps one
+  compressed copy per large folder pack in .nitro/packs and takes each file from it while its size
+  and modification time are unchanged; only changed files are opened. Files written in the last few
+  seconds are left out of the snapshot so a write in the same clock tick can never leave stale bytes.
+  Measured: Sawmill's pack in 83 ms from the snapshot (7.2 s on the launch that wrote it), all four
+  folder packs on this pack in about 250 ms. The snapshot is 1 MB for Sawmill's 9 MB of recipes.
+- WaterMedia's FFmpeg loads on a background thread (asyncWaterMedia). It loaded ten native libraries
+  inside its mod constructor, about 10 s, and was the last mod constructed by about 6 s, so the
+  whole launch waited for it. Every WaterMedia call that could need FFmpeg (creating a player,
+  asking whether FFmpeg is loaded or failed, shutting down) waits for the load first, so WaterMedia
+  gives the same answers as before. Measured on Java 21: loading moved on 2.4 to 2.7 s before FFmpeg
+  finished. On the earlier Java 25 launch the other mods were done 6.6 s before WaterMedia, so the
+  saving there is up to that.
+
 This release also carries everything from 1.1.0, which did not go out on the sites: every fix that
 patches another mod checks the installed class before applying, async JEI works on the whole
 JEI 19.53 line again (it had switched itself off on 19.53.0.426), the end-of-loading report, the

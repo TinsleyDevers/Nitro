@@ -140,6 +140,8 @@ public final class ModTargets {
             "[1.6,2.0)", NONE, List.of("registerTypeWrappers")));
         TARGETS.put("moogs", soft("moogs_paths", "com.finndog.moogs_paths.world.deferred.PathfindWorker",
             "[1.0,2.0)", NONE, List.of("start")));
+        TARGETS.put("watermedia", soft("watermedia", "org.watermedia.api.media.MediaAPI",
+            "[3.0,4.0)", NONE, List.of("start", "startFFmpeg", "createPlayer", "ffmpegLoaded", "ffmpegError", "release")));
 
         // Behaviour-bound, not just shape-bound: the recipe pairing semantics are what is being changed.
         TARGETS.put("megacells", hard("megacells", "gripe._90.megacells.misc.CompressionService", "[4.11,4.12)",

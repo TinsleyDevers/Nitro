@@ -1,12 +1,19 @@
 package com.tinsl.nitro.resources;
 
 import com.tinsl.nitro.Nitro;
+import com.tinsl.nitro.common.NitroSettings;
 import net.minecraft.server.packs.PackResources;
+import net.neoforged.fml.loading.FMLPaths;
 
 import java.io.IOException;
 import java.nio.file.FileSystems;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -16,10 +23,10 @@ import java.util.TreeMap;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.lang.ref.Cleaner;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 /**
  * In-memory copy of a resource/data pack that lives as a plain directory on disk (the
@@ -118,49 +125,71 @@ public final class DirectoryPackCache {
 
         static Cache build(PackResources pack, Path root) {
             long start = System.nanoTime();
+            long readAt = PackSnapshot.micros(FileTime.from(Instant.now()));
             if (!Files.isDirectory(root)) {
                 return DISABLED;
             }
             List<Path> paths = new ArrayList<>();
+            List<String> relatives = new ArrayList<>();
+            List<long[]> stamps = new ArrayList<>(); // size, modification time in microseconds
             Map<String, Boolean> dirs = new ConcurrentHashMap<>();
             Path dataRoot = root.resolve("data");
             if (!Files.isDirectory(dataRoot)) return DISABLED;
-            try (Stream<Path> stream = Files.walk(dataRoot)) {
-                stream.forEach(p -> {
-                    if (p.equals(root)) {
-                        return;
+            try {
+                // The listing hands over size and time with each name, so nothing here opens a file.
+                Files.walkFileTree(dataRoot, new SimpleFileVisitor<>() {
+                    @Override
+                    public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                        dirs.put(relative(root, dir), Boolean.TRUE);
+                        return FileVisitResult.CONTINUE;
                     }
-                    String rel = root.relativize(p).toString().replace('\\', '/');
-                    if (Files.isDirectory(p)) {
-                        dirs.put(rel, Boolean.TRUE);
-                    } else if (Files.isRegularFile(p)) {
-                        paths.add(p);
-                        int slash = rel.lastIndexOf('/');
-                        if (slash > 0) {
-                            dirs.put(rel.substring(0, slash), Boolean.TRUE);
+
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                        BasicFileAttributes a = attrs;
+                        if (a.isSymbolicLink() || a.isOther()) {
+                            a = Files.readAttributes(file, BasicFileAttributes.class); // what the link points at
                         }
+                        String rel = relative(root, file);
+                        if (a.isDirectory()) {
+                            dirs.put(rel, Boolean.TRUE);
+                        } else if (a.isRegularFile()) {
+                            paths.add(file);
+                            relatives.add(rel);
+                            stamps.add(new long[] {a.size(), PackSnapshot.micros(a.lastModifiedTime())});
+                        }
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    @Override
+                    public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+                        throw exc;
                     }
                 });
             } catch (IOException | RuntimeException e) {
                 Nitro.LOGGER.warn("Nitro: could not index directory pack {} ({}); reading it from disk", pack.packId(), e.toString());
                 return DISABLED;
             }
-            byte[][] contents = new byte[paths.size()][];
+            int count = paths.size();
+            long[] sizes = new long[count];
+            long[] modified = new long[count];
+            for (int i = 0; i < count; i++) {
+                sizes[i] = stamps.get(i)[0];
+                modified[i] = stamps.get(i)[1];
+            }
+            Path snapshotDir = snapshotDir();
+            Path snapshotFile = snapshotDir != null && count >= PackSnapshot.MIN_FILES ? PackSnapshot.fileFor(snapshotDir, root) : null;
+            Map<String, PackSnapshot.Entry> snapshot = snapshotFile == null ? Map.of() : PackSnapshot.read(snapshotFile, root);
+            byte[][] contents = new byte[count][];
             AtomicLong total = new AtomicLong();
+            AtomicInteger opened = new AtomicInteger();
+            AtomicInteger reused = new AtomicInteger();
             Map<String, byte[]> staged = STAGED.remove(root.toAbsolutePath().normalize());
             try {
-                READERS.submit(() -> IntStream.range(0, paths.size()).parallel().forEach(i -> {
-                    Path p = paths.get(i);
+                READERS.submit(() -> IntStream.range(0, count).parallel().forEach(i -> {
+                    long size = sizes[i];
                     long reserved = 0;
                     try {
-                        long size = Files.size(p);
-                        if (staged != null) {
-                            byte[] known = staged.get(root.relativize(p).toString().replace('\\', '/'));
-                            if (known != null && known.length == size && reserve(total, size, MAX_TOTAL) && reserve(RETAINED, size, MAX_GLOBAL)) {
-                                contents[i] = known;
-                                return;
-                            }
-                        }
                         if (size > MAX_FILE || !reserve(total, size, MAX_TOTAL)) {
                             contents[i] = TOO_LARGE;
                             return;
@@ -171,8 +200,20 @@ public final class DirectoryPackCache {
                             return;
                         }
                         reserved = size;
+                        byte[] known = staged == null ? null : staged.get(relatives.get(i));
+                        if (known != null && known.length == size) {
+                            contents[i] = known;
+                            return;
+                        }
+                        PackSnapshot.Entry kept = snapshot.get(relatives.get(i));
+                        if (kept != null && kept.size() == size && kept.modified() == modified[i]) {
+                            contents[i] = kept.bytes();
+                            reused.incrementAndGet();
+                            return;
+                        }
+                        opened.incrementAndGet();
                         // Bound the allocation even if a file grows while the reload is reading it.
-                        try (var in = Files.newInputStream(p)) {
+                        try (var in = Files.newInputStream(paths.get(i))) {
                             contents[i] = in.readNBytes((int) size);
                             if (contents[i].length != size || in.read() != -1) throw new IOException("Pack file changed while reading");
                         }
@@ -187,17 +228,52 @@ public final class DirectoryPackCache {
                 Nitro.LOGGER.warn("Nitro: reading directory pack {} failed ({}); reading it from disk", pack.packId(), e.toString());
                 return DISABLED;
             }
-            TreeMap<String, byte[]> files = new TreeMap<>();
-            for (int i = 0; i < paths.size(); i++) {
-                files.put(root.relativize(paths.get(i)).toString().replace('\\', '/'), contents[i]);
+            if (snapshotFile != null && (opened.get() > 0 || reused.get() != snapshot.size())) {
+                PackSnapshot.writeLater(snapshotFile, root, relatives, sizes, modified, contents, TOO_LARGE, readAt);
             }
-            Nitro.LOGGER.info("Nitro: loaded directory pack '{}' into memory: {} files, {} KB in {} ms",
-                pack.packId(), files.size(), total.get() >> 10, (System.nanoTime() - start) / 1_000_000L);
+            TreeMap<String, byte[]> files = new TreeMap<>();
+            for (int i = 0; i < count; i++) {
+                files.put(relatives.get(i), contents[i]);
+            }
+            Nitro.LOGGER.info("Nitro: loaded directory pack '{}' into memory: {} files, {} KB in {} ms{}",
+                pack.packId(), files.size(), total.get() >> 10, (System.nanoTime() - start) / 1_000_000L,
+                snapshotFile == null ? "" : " (" + reused.get() + " from snapshot, " + opened.get() + " opened)");
             Cache cache = new Cache(files, dirs);
             long bytes = total.get();
             cache.cleanable = CLEANER.register(cache, () -> RETAINED.addAndGet(-bytes));
             return cache;
         }
+    }
+
+    private static String relative(Path root, Path p) {
+        return root.relativize(p).toString().replace('\\', '/');
+    }
+
+    private static volatile Path snapshotDir;
+    private static volatile boolean snapshotResolved;
+
+    /** {@code .nitro/packs} in the game directory, or null when snapshots are off or there is no game directory. */
+    static Path snapshotDir() {
+        if (!snapshotResolved) {
+            Path dir = null;
+            try {
+                Path gameDir = FMLPaths.GAMEDIR.get();
+                if (NitroSettings.load(gameDir).directoryPackSnapshot) {
+                    dir = gameDir.resolve(".nitro").resolve("packs");
+                }
+            } catch (Throwable ignored) {
+                // no game directory (tests, tools): no snapshots
+            }
+            snapshotDir = dir;
+            snapshotResolved = true;
+        }
+        return snapshotDir;
+    }
+
+    /** For tests. */
+    static void useSnapshotDir(Path dir) {
+        snapshotDir = dir;
+        snapshotResolved = true;
     }
 
     static boolean reserve(AtomicLong counter, long bytes, long limit) {

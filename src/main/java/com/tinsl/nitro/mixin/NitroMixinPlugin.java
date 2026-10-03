@@ -125,6 +125,9 @@ public final class NitroMixinPlugin implements IMixinConfigPlugin {
             if (mixinClassName.endsWith("MoogsPathsWorkerMixin")) {
                 return ModTargets.check("moogs", settings.pathfindThreads > 0).active();
             }
+            if (mixinClassName.endsWith("WaterMediaFFmpegMixin")) {
+                return ModTargets.check("watermedia", settings.asyncWaterMedia).active();
+            }
             return settings.compatFixes;
         }
         if (mixinClassName.contains(".elysium.")) {

@@ -44,6 +44,8 @@ public final class NitroSettings {
     public final boolean asyncJei;
     /** Thread priority for the JEI startup thread (1..10). */
     public final int asyncJeiPriority;
+    /** Load WaterMedia's FFmpeg libraries on a background thread instead of in its mod constructor. */
+    public final boolean asyncWaterMedia;
     /** Log a summary of startup / world-load phase timings. */
     public final boolean startupReport;
     /** Decode recipe JSON in parallel during data pack load. */
@@ -68,6 +70,8 @@ public final class NitroSettings {
     public final boolean spawnFixes;
     /** Read directory-backed packs (datapacks folder, KubeJS, Moonlight caches) into memory once per reload. */
     public final boolean directoryPackCache;
+    /** Keep a compressed copy of large folder packs on disk and reuse unchanged files from it. */
+    public final boolean directoryPackSnapshot;
     /** Small load-order / compatibility fixes between specific mods (Create Ore Excavation + KubeJS Create). */
     public final boolean compatFixes;
     /** Experimental: keep transformed class bytes on disk (.nitro/classcache) and reuse them. Off by default; see the config doc. */
@@ -94,6 +98,7 @@ public final class NitroSettings {
         this.loaderPatches = bool(p, "loaderPatches", true);
         this.asyncJei = bool(p, "asyncJei", true);
         this.asyncJeiPriority = clamp(integer(p, "asyncJeiPriority", 3), 1, 10);
+        this.asyncWaterMedia = bool(p, "asyncWaterMedia", true);
         this.startupReport = bool(p, "startupReport", true);
         this.parallelRecipes = bool(p, "parallelRecipes", false);
         this.resourceIndex = bool(p, "resourceIndex", true);
@@ -111,6 +116,7 @@ public final class NitroSettings {
         this.worldLoadFixes = bool(p, "worldLoadFixes", true);
         this.spawnFixes = bool(p, "spawnFixes", true);
         this.directoryPackCache = bool(p, "directoryPackCache", true);
+        this.directoryPackSnapshot = bool(p, "directoryPackSnapshot", true);
         this.compatFixes = bool(p, "compatFixes", true);
         this.classCache = bool(p, "experimentalClassCache", false);
         this.pathfindThreads = integer(p, "pathfindThreads", 0);
@@ -223,6 +229,11 @@ public final class NitroSettings {
         new String[] {"asyncJei", "true", """
             # Move JEI's startup (recipe plugin registration + ingredient search index) off the render
             # thread. Fixes the multi-minute stutter/freeze after joining a world and the first-inventory-open hang."""},
+        new String[] {"asyncWaterMedia", "true", """
+            # WaterMedia loads its FFmpeg libraries (93 MB of DLLs, about 10 s here) inside its mod constructor, and every
+            # other mod waits for the slowest constructor before loading moves on. Load them on a background thread
+            # instead; anything that asks WaterMedia for a video player or whether FFmpeg is ready waits for that load,
+            # so the answers are the same, only the main menu comes sooner."""},
         new String[] {"asyncJeiPriority", "3", """
             # Java thread priority for the JEI startup thread (1 = lowest, 10 = highest). Lower keeps FPS smooth."""},
         new String[] {"parallelRecipes", "false", """
@@ -235,6 +246,11 @@ public final class NitroSettings {
             # Packs that are plain folders on disk (datapacks/, kubejs/, Moonlight's dynamic-*-pack-cache with ~30k Sawmill
             # recipe files here) are opened file by file on every data pack reload, and each open costs milliseconds when
             # antivirus inspects it (70 s of idle reload measured). Read each such pack into memory with all cores instead."""},
+        new String[] {"directoryPackSnapshot", "true", """
+            # Even read with all cores, Sawmill's ~29k files took 11 to 13 s on most world joins here, because every open
+            # still goes past the antivirus. Keep one compressed copy of each large folder pack in .nitro/packs and take a
+            # file from it when the file's size and modification time are unchanged; only changed files are opened. That
+            # is one file read instead of thousands. Delete .nitro/packs to start over; it is rebuilt on the next load."""},
         new String[] {"modelVisibilityBuiltin", "true", """
             # ModernFix "dynamic resources" load models lazily, but a mod whose model-bake handler walks the whole
             # model registry forces every model to load on one thread. Nitro ships a list of mods whose handlers were
