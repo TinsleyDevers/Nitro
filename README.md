@@ -11,6 +11,10 @@ runtime (JEI, ModernFix, Puzzles Lib, JAOPCA, MoreCulling, Elysium API): each fi
 when the mod it applies to is present, and every fix has a switch in `config/nitro.properties`.
 (Modrinth coming soon...)
 
+![Nitro startup benchmark on a Minecraft modpack with over 1,000 mod jars](https://cdn.modrinth.com/data/EC614zDv/images/be9546b1a78b2cd17710cc48c95d3432348d5b5f.png)
+
+![What Nitro speeds up on NeoForge 1.21.1](https://cdn.modrinth.com/data/EC614zDv/images/9782faa9edfa0b50cb7bb9e2a20aa28779dd80a0.png)
+
 ## Will it work on my pack
 
 The launch fixes (module resolver, Mixin, the jar handler, the class cache, the resource index) do
