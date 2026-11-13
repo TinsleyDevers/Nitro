@@ -59,6 +59,13 @@ dependencies {
     compileOnly "mezz.jei:jei-${minecraft_version}-neoforge:${jei_version}"
 }
 
+tasks.named('processResources', ProcessResources) {
+    inputs.property 'nitroVersion', project.version
+    filesMatching('META-INF/neoforge.mods.toml') {
+        expand nitroVersion: project.version
+    }
+}
+
 tasks.named('test') { useJUnitPlatform() }
 sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
 sourceSets.test.runtimeClasspath += sourceSets.main.runtimeClasspath

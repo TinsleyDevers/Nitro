@@ -26,13 +26,19 @@ tasks.withType(JavaCompile).configureEach {
     ])
 }
 
-// The agent proper: loaded onto the bootstrap class path by the stub below, never given to the JVM
-// directly, so it needs no agent manifest.
+// The agent proper supports dynamic attach and is also loaded by the explicit -javaagent stub.
 tasks.named('jar', Jar) {
     archiveBaseName = 'nitro-agent'
     // Embedded in the distributable, never shipped on its own: keep it out of build/libs.
     destinationDirectory = layout.buildDirectory.dir('embedded')
     exclude 'nitro/stub/**'
+    manifest {
+        attributes(
+            'Agent-Class': 'nitro.agent.NitroAgent',
+            'Can-Retransform-Classes': 'true',
+            'Can-Redefine-Classes': 'true'
+        )
+    }
 }
 
 // The file players point -javaagent at. It never changes between Nitro versions: it finds the Nitro

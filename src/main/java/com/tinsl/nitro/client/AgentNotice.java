@@ -1,6 +1,8 @@
 package com.tinsl.nitro.client;
 
 import com.tinsl.nitro.Nitro;
+import cpw.mods.modlauncher.Launcher;
+import cpw.mods.modlauncher.api.IModuleLayerManager;
 import com.tinsl.nitro.common.NitroSettings;
 import com.tinsl.zambielib.client.GuiKit;
 import net.minecraft.client.Minecraft;
@@ -15,21 +17,11 @@ import net.neoforged.fml.loading.FMLPaths;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Tells the player, once, on the main menu, how to get rid of the long pause before mods load.
- *
- * On Java 21 that pause is Java's module resolver, and there are two fixes: run the instance on
- * Java 25, which has the resolver fix built in and needs nothing pasted anywhere, or keep Java 21
- * and add Nitro's agent to the JVM arguments. Java 25 measured faster (101 s to the menu on a 1017
- * mod pack, against 134 s with the agent and 273 s with neither), so it is the first tab. When Nitro
- * found a Java 25 already on the computer, the screen shows its path with a copy button, which turns
- * "download Java and work out where it went" into one paste.
- *
- * Most players never open a log, so a log line alone would leave them wondering why nothing got faster.
- */
+/** Offers agent setup when the early startup agent was unavailable. */
 public final class AgentNotice {
     private static final String JAVA_25_DOWNLOAD = "https://adoptium.net/temurin/releases/?version=25";
     private static boolean shown;
@@ -37,12 +29,11 @@ public final class AgentNotice {
     private AgentNotice() {}
 
     public static void register(NitroSettings settings) {
-        // On Java 24+ the module resolver fix is built in, and the agent's remaining loader patches
-        // measured within a second of nothing on a 1017 mod pack (100 s to the menu with it, 101 s
-        // without). Not worth a screen asking the player to change anything.
-        if (!settings.agentNotice || Runtime.version().feature() >= 24) {
+        if (!settings.agentNotice) {
             return;
         }
+        boolean canEnable = !settings.autoAttachAgent
+            && settings.overriddenKeys.stream().noneMatch(key -> key.startsWith("autoAttachAgent="));
         // Lowest priority so the startup timing sees the real title screen before this swaps it out.
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, (ScreenEvent.Opening event) -> {
             if (shown || !(event.getNewScreen() instanceof TitleScreen title)) {
@@ -50,15 +41,13 @@ public final class AgentNotice {
             }
             shown = true;
             String argument = System.getProperty("nitro.agentArgument");
-            // Only when the agent is absent. When it is present but failed, the log says why, and this
-            // screen's advice (add the argument) would be wrong.
-            if (argument == null || Boolean.getBoolean("nitro.agentLoaded") || System.getProperty("nitro.resolverPatchError") != null) {
+            if (argument == null || Boolean.getBoolean("nitro.agentLoaded")) {
                 return;
             }
             String launcher = System.getProperty("nitro.agentLauncher", "your launcher");
             String steps = System.getProperty("nitro.agentSteps", "Add it to this instance's JVM arguments and restart.");
             event.setNewScreen(new NoticeScreen(title, argument, launcher, steps, System.getProperty("nitro.javaSteps"),
-                System.getProperty("nitro.java25"), pauseSeconds()));
+                System.getProperty("nitro.java25"), pauseSeconds(), canEnable));
         });
     }
 
@@ -76,11 +65,17 @@ public final class AgentNotice {
         private final String argument;
         private final String java25;
         private final boolean javaTab;
+        private final boolean automaticJavaAvailable;
+        private boolean manualJava;
+        private boolean javaSetupScheduled;
+        private final boolean canEnable;
+        private boolean enabledForNextLaunch;
         private final List<Component> javaPage = new ArrayList<>();
+        private final List<Component> manualJavaPage = new ArrayList<>();
         private final List<Component> argumentPage = new ArrayList<>();
         /** Index into the page of the line shown in a dark box (the path or the argument), or -1. */
         private int javaBoxLine = -1;
-        private int argumentBoxLine;
+        private int argumentBoxLine = -1;
         private boolean onJavaTab;
         private Component status = Component.empty();
         private int panelWidth;
@@ -93,48 +88,51 @@ public final class AgentNotice {
          * @param java25    a Java 25 program found on this computer, or null
          * @param pause     seconds this launch spent building the module layer, or negative when unknown
          */
-        NoticeScreen(Screen parent, String argument, String launcher, String steps, String javaSteps, String java25, long pause) {
+        NoticeScreen(Screen parent, String argument, String launcher, String steps, String javaSteps, String java25, long pause, boolean canEnable) {
             super(Component.literal("Nitro: this pack can start much faster"));
             this.parent = parent;
             this.argument = argument;
             this.java25 = java25;
             this.javaTab = javaSteps != null;
-            this.onJavaTab = javaTab;
+            this.automaticJavaAvailable = "Prism Launcher".equals(launcher) && java25 != null;
+            this.canEnable = canEnable;
+            this.onJavaTab = javaTab && !canEnable;
             // Capitalised for the start of a sentence ("the CurseForge app" -> "The CurseForge app").
             String who = launcher.isEmpty() ? launcher : Character.toUpperCase(launcher.charAt(0)) + launcher.substring(1);
-            int java = Runtime.version().feature();
-            String waited = pause >= 10
-                ? "This launch spent " + pause + " s waiting on Java " + java + " before any mod loaded."
-                : "Before any mod loads, Java " + java + " pauses for a long time on a pack this size.";
-
             if (javaTab) {
-                javaPage.add(Component.literal(waited + " Java 25 has that fixed, so running this instance on it "
-                    + "removes the wait with nothing to paste. This is the fastest option."));
-                javaPage.add(Component.literal(who + ": " + javaSteps));
+                javaPage.add(Component.literal(pause >= 10
+                    ? "Java " + Runtime.version().feature() + " spent " + pause + " s linking mods. Java 25 includes the faster resolver."
+                    : "Java 25 includes a faster resolver for large modpacks."));
+                javaPage.add(Component.literal("How would you like to set up Java 25?"));
+                if (!automaticJavaAvailable) {
+                    javaPage.add(Component.literal(!"Prism Launcher".equals(launcher)
+                        ? "This launcher uses manual setup."
+                        : "Automatic setup needs an installed Java 25."));
+                }
+                manualJavaPage.add(Component.literal(who + ": " + javaSteps));
                 if (java25 != null) {
-                    javaPage.add(Component.literal("Java 25 is already on this computer. Pick it in the list, or use this path:"));
-                    javaBoxLine = javaPage.size();
-                    javaPage.add(Component.literal(java25));
-                } else {
-                    javaPage.add(Component.literal("No Java 25 was found on this computer. Your launcher may be able to "
-                        + "download one for you; if not, the button below opens the free Temurin download page."));
+                    javaBoxLine = manualJavaPage.size();
+                    manualJavaPage.add(Component.literal(java25));
                 }
             }
-            argumentPage.add(Component.literal((javaTab ? "Or keep Java " + java + ": " : waited + " ")
-                + "add this line to the JVM arguments once. It turns on Nitro's agent, which fixes the pause on this "
-                + "Java and stays valid when Nitro updates."));
-            argumentBoxLine = argumentPage.size();
-            argumentPage.add(Component.literal(argument));
-            argumentPage.add(Component.literal(who + ": " + steps));
-            argumentPage.add(Component.literal("Everything else in Nitro is already running."));
+            if (canEnable) {
+                argumentPage.add(Component.literal("Automatic attach is off for this instance. Enable it here, "
+                    + "then restart Minecraft to apply Nitro's early launch patches."));
+            } else {
+                argumentPage.add(Component.literal("Nitro could not attach automatically. To load its agent at startup, "
+                    + "add this line to the JVM arguments and restart Minecraft."));
+                argumentBoxLine = argumentPage.size();
+                argumentPage.add(Component.literal(argument));
+                argumentPage.add(Component.literal(who + ": " + steps));
+            }
         }
 
         private List<Component> page() {
-            return onJavaTab ? javaPage : argumentPage;
+            return !onJavaTab ? argumentPage : manualJava ? manualJavaPage : javaPage;
         }
 
         private int boxLine() {
-            return onJavaTab ? javaBoxLine : argumentBoxLine;
+            return !onJavaTab ? argumentBoxLine : manualJava ? javaBoxLine : -1;
         }
 
         private int panelX() {
@@ -181,7 +179,18 @@ public final class AgentNotice {
             }
 
             int y = panelY() + buttonsTop;
-            if (onJavaTab) {
+            if (onJavaTab && !manualJava) {
+                int half = (inner - 5) / 2;
+                Button automatic = Button.builder(Component.literal("Set up automatically"), b -> scheduleJavaSetup())
+                    .bounds(x, y, half, 20).build();
+                automatic.active = automaticJavaAvailable && !javaSetupScheduled;
+                addRenderableWidget(automatic);
+                addRenderableWidget(Button.builder(Component.literal("Set up manually"), b -> {
+                    manualJava = true;
+                    status = Component.empty();
+                    rebuildWidgets();
+                }).bounds(x + half + 5, y, inner - half - 5, 20).build());
+            } else if (onJavaTab) {
                 if (java25 != null) {
                     addRenderableWidget(Button.builder(Component.literal("Copy Java 25 path"), b -> {
                         Minecraft.getInstance().keyboardHandler.setClipboard(java25);
@@ -191,6 +200,11 @@ public final class AgentNotice {
                     addRenderableWidget(Button.builder(Component.literal("Get Java 25 (opens your browser)"),
                         b -> ConfirmLinkScreen.confirmLinkNow(this, JAVA_25_DOWNLOAD)).bounds(x, y, inner, 20).build());
                 }
+            } else if (canEnable) {
+                Button enable = Button.builder(Component.literal("Enable Nitro agent on next launch"),
+                    this::enableAutoAttach).bounds(x, y, inner, 20).build();
+                enable.active = !enabledForNextLaunch;
+                addRenderableWidget(enable);
             } else {
                 addRenderableWidget(Button.builder(Component.literal("Copy argument"), b -> {
                     Minecraft.getInstance().keyboardHandler.setClipboard(argument);
@@ -200,7 +214,13 @@ public final class AgentNotice {
 
             int w = (inner - 5) / 2;
             int bottom = y + 24;
-            addRenderableWidget(Button.builder(Component.literal("Later"), b -> onClose()).bounds(x, bottom, w, 20).build());
+            addRenderableWidget(Button.builder(Component.literal(onJavaTab && manualJava ? "Back" : "Later"), b -> {
+                if (onJavaTab && manualJava) {
+                    showTab(true);
+                } else {
+                    onClose();
+                }
+            }).bounds(x, bottom, w, 20).build());
             addRenderableWidget(Button.builder(Component.literal("Don't show again"), b -> {
                 try {
                     NitroSettings.save(FMLPaths.GAMEDIR.get(), "agentNotice", "false");
@@ -211,7 +231,40 @@ public final class AgentNotice {
             }).bounds(x + w + 5, bottom, inner - w - 5, 20).build());
         }
 
+        private void enableAutoAttach(Button button) {
+            try {
+                NitroSettings.save(FMLPaths.GAMEDIR.get(), "autoAttachAgent", "true");
+                enabledForNextLaunch = true;
+                button.active = false;
+                status = Component.literal("Enabled. Restart Minecraft to apply it.");
+            } catch (java.io.IOException e) {
+                Nitro.LOGGER.warn("Nitro: could not save automatic attach", e);
+                status = Component.literal("Could not save the setting. See latest.log.");
+            }
+        }
+
+        private void scheduleJavaSetup() {
+            try {
+                var manager = Launcher.INSTANCE.findLayerManager().orElseThrow();
+                var layer = manager.getLayer(IModuleLayerManager.Layer.SERVICE).orElseThrow();
+                var module = layer.findModule("nitro.launch").orElseThrow();
+                Class<?> setup = Class.forName(module, "com.tinsl.nitro.launch.JavaSetupLauncher");
+                if (setup == null) {
+                    throw new ClassNotFoundException("Nitro Java setup");
+                }
+                setup.getMethod("schedule", Path.class).invoke(null, FMLPaths.GAMEDIR.get());
+                javaSetupScheduled = true;
+                javaPage.add(Component.literal("Setup queued. Quit Minecraft and Prism completely. "
+                    + "Wait a moment, then reopen Prism and launch this instance."));
+                rebuildWidgets();
+            } catch (ReflectiveOperationException | RuntimeException exception) {
+                Nitro.LOGGER.warn("Nitro: could not start automatic Java setup", exception);
+                status = Component.literal("Could not queue setup. See latest.log.");
+            }
+        }
+
         private void showTab(boolean java) {
+            manualJava = false;
             onJavaTab = java;
             status = Component.empty();
             rebuildWidgets();

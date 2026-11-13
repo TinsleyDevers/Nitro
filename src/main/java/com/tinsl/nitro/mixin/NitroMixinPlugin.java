@@ -73,6 +73,9 @@ public final class NitroMixinPlugin implements IMixinConfigPlugin {
         if (mixinClassName.contains(".jei.")) {
             return jeiActive;
         }
+        if (mixinClassName.contains(".registry.")) {
+            return settings.compatFixes;
+        }
         if (mixinClassName.endsWith("RecipeManagerMixin")) {
             if (!settings.parallelRecipes) {
                 return false;
@@ -117,10 +120,14 @@ public final class NitroMixinPlugin implements IMixinConfigPlugin {
                 // ModelManagerReloadMixin targets vanilla but only makes sense with the cache mixin.
                 return ModTargets.check("modernfix.modelCache", settings.modelLocationCache).active();
             }
+            if (mixinClassName.endsWith("ModelVariantNamesMixin")) {
+                return ModTargets.check("modernfix.variantNames", settings.modelLocationCache).active();
+            }
             if (mixinClassName.endsWith("ModelVisibilityIndexMixin")) {
                 return ModTargets.check("modernfix.visibilityIndex", true).active();
             }
-            return ModTargets.check("modernfix.modelVisibility", !settings.modelVisibility.isEmpty()).active();
+            return ModTargets.check("modernfix.modelVisibility", !settings.modelVisibility.isEmpty()
+                || settings.compatFixes).active();
         }
         if (mixinClassName.contains(".spawn.")) {
             return settings.spawnFixes;
@@ -147,6 +154,9 @@ public final class NitroMixinPlugin implements IMixinConfigPlugin {
             }
             if (mixinClassName.endsWith("MoogsPathsWorkerMixin")) {
                 return ModTargets.check("moogs", settings.pathfindThreads > 0).active();
+            }
+            if (mixinClassName.endsWith("FurnitureMaterialsMixin")) {
+                return ModTargets.check("furnitureMaterials", settings.compatFixes).active();
             }
             if (mixinClassName.endsWith("WaterMediaFFmpegMixin")) {
                 return ModTargets.check("watermedia", settings.asyncWaterMedia).active();

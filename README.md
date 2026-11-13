@@ -6,59 +6,51 @@ measured on a 1017-mod pack: launch to world screen went from 6:53 (original) to
 world join after that from about 3:13 to about 2:30. It runs on dedicated servers too.
 
 [Download on CurseForge](https://www.curseforge.com/minecraft/mc-mods/nitro-performance). Drop the jar into `mods/` next to
-[ZambieLib](https://www.curseforge.com/minecraft/mc-mods/zambielibb), which it requires. Everything else is optional at
+[ZambieLib](https://www.curseforge.com/minecraft/mc-mods/zambielib), which it requires. Everything else is optional at
 runtime (JEI, ModernFix, Puzzles Lib, JAOPCA, MoreCulling, Elysium API): each fix only activates
 when the mod it applies to is present, and every fix has a switch in `config/nitro.properties`.
 (Modrinth coming soon...)
 
-## One JVM argument for the launch patches
+## Java setup
 
-Nitro's launch patches (the module resolver, Mixin and the jar handler) have to run
-before any mod loads, and the only way Java allows that is a JVM agent. Nitro never loads one by
-itself: Java reserves agents for code the player names on the command line, and that is the only
-way Nitro's agent runs. On the first launch Nitro writes a small file and prints the line to add,
-in the log and on a one-time screen on the main menu with a copy button:
+On the Java 25 tab, choose **Set up automatically** or **Set up manually**. Automatic setup
+is available for Prism instances with Java 25 installed. After selecting it, quit Minecraft and
+Prism completely. Nitro then updates the instance, backs up `instance.cfg`, and writes
+`.nitro/java-setup.log` inside the game directory.
 
+Minecraft's launcher chooses Java before Nitro loads. With Prism closed, Nitro can select an
+installed Java 25 for a single profile and save a backup of that profile's settings:
+
+```text
+java -jar nitro-1.3.0.jar --configure-prism "path to the Prism instance folder"
 ```
+
+Pass the folder containing `instance.cfg` and `mmc-pack.json`. Run the command with Java 21 or
+newer, then open Prism and launch the instance normally. The command uses an existing Java
+installation. The Modrinth App and CurseForge expose Java selection in their launcher settings.
+
+## Nitro's startup agent
+
+Nitro 1.3.0 loads its bundled agent automatically when the runtime allows dynamic attach. A
+short-lived helper uses the same Java installation and attaches to the game that started it.
+The agent speeds up module resolution on Java 21–23, Mixin processing, and jar lookups. Java 24
+and later already have the faster module resolver.
+
+Set `autoAttachAgent=false` in `config/nitro.properties` to turn off automatic attach for the
+instance. Nitro's startup notice offers **Enable Nitro agent on next launch**. Clicking it saves
+the setting and the next launch uses it. `agentNotice=false` hides the notice.
+
+If Java blocks dynamic attach or the runtime lacks the Attach API, Minecraft continues loading.
+The notice offers the explicit `-javaagent` argument as a fallback. It also offers Java 25 setup
+information on older Java versions. An existing `-javaagent` setup takes priority and continues
+working across Nitro updates.
+
+```text
 -javaagent:<your instance>/.nitro/nitro-agent.jar
 ```
 
-Nitro recognises the launcher and says where the line goes in it (Prism: Edit, Settings, Java tab;
-the CurseForge app: gear icon, Minecraft, Java Settings, Additional Arguments; the Modrinth App:
-instance settings, Java and memory; servers: `user_jvm_args.txt` or the start script), then
-restart. Once is enough. That file
-is a small loader that never changes: it finds whichever Nitro jar is in your mods folder and runs
-the agent inside it, so updating Nitro does not touch the argument. If Nitro is removed, it does
-nothing and the game starts normally. Two things to know:
-
-- A JVM will not start if a `-javaagent` file is missing, so keep `.nitro/nitro-agent.jar` while the
-  argument is set. The rest of `.nitro` is cache and safe to delete.
-- The CurseForge app has one set of JVM arguments for every profile, so there Nitro points the line at
-  a shared copy beside the `Instances` folder instead of inside one profile. The loader checks which
-  game is starting and does nothing for profiles without Nitro, and deleting a profile cannot break
-  the others.
-
-Without the argument, everything else in Nitro (resources, model loading, async JEI, the world join
-fixes) still runs. Java 24 and later already have the module resolver fix built in, so on those the
-argument adds the loader patches only, about a second.
-
-### With or without the argument (1017 mods, same PC, launch to main menu)
-
-| | without the argument | with it |
-|---|---|---|
-| Java 21 (what 1.21.1 asks for) | 273 s | 134 s |
-| Java 25 | 101 s | 100 s |
-
-The gap on Java 21 is one thing: Java 21's module resolver takes about 140 s to link 1000 mods,
-and Java 24 fixed it. A mod cannot change that code without the agent (ModLauncher calls the JDK
-directly, before any mod runs), so on Java 21 the argument is the only way around it. Running the
-pack on Java 25 removes it with no argument at all (in the world 187 s after launch without the
-argument, 178 s with it). NeoForge 1.21.1 and this 1017 mod pack ran on Java 25
-without any errors that Java 21 did not also log. Launchers ask for Java 21 for this version, so
-in Prism turn on "Skip Java compatibility checks" after picking Java 25. When the argument is
-missing on Java 21, Nitro's log line and main menu notice offer both routes, Java 25 first, with
-the steps for your launcher and the path of a Java 25 already on your computer if there is one
-(Prism downloads one for newer Minecraft versions, so it often is).
+Use the path Nitro prints for your launcher. Keep that stub while a launcher points at it,
+because Java checks the path before Minecraft starts.
 
 ## Will it work on my pack
 
@@ -277,7 +269,8 @@ the CPU go while chunks generate:
 | `strictVersions` | false | only apply a mod-specific fix when that mod's version is one Nitro was tested against, on top of the class check that always runs |
 | `startupProfiler` | true | sample the loading threads and report where launch time went, including time spent waiting on the network |
 | `jeiVersions` | `[19.53,19.58)` | JEI version range the async startup applies to |
-| `agentNotice` | true | show the one-time main menu screen with the JVM argument when the agent is missing |
+| `autoAttachAgent` | true | load Nitro's bundled agent automatically during startup |
+| `agentNotice` | true | offer agent setup from the main menu |
 
 Any key also works as a JVM argument: `-Dnitro.config.<key>=<value>` wins over the file, which is
 what you want when one launch script drives several servers, or when bisecting a problem without
@@ -349,6 +342,5 @@ it embeds.
 - Files extracted at runtime live in `<instance>/.nitro/` and are safe to delete, except
   `nitro-agent.jar` while the JVM argument points at it. Nitro deletes `.nitro/classcache`
   itself while the experimental class cache is off.
-- Nitro starts no processes, makes no network connections and never attaches an agent on its own.
-  Before 1.2.0 it attached its agent through a short-lived helper JVM; that is gone.
+- Automatic attach runs a short-lived local Java helper. Its diagnostic output is in `.nitro/attach.log`.
 - Every patch logs one line when applied and one warning when skipped; nothing is silent.

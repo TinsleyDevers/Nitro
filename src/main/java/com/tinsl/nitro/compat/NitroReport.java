@@ -37,7 +37,8 @@ public final class NitroReport {
 
         lines.add("  launch");
         lines.add(row("module resolver", resolverState()));
-        String noAgent = "off, needs the agent in the JVM arguments";
+        lines.add(row("automatic attach", settings.autoAttachAgent ? "enabled" : "off in config"));
+        String noAgent = "off, agent unavailable";
         lines.add(row("loader patches", agentLoaded()
             ? (settings.loaderPatches ? "active" : "off in config")
             : noAgent));
@@ -100,7 +101,7 @@ public final class NitroReport {
         if (error != null) {
             return "NOT applied: " + error;
         }
-        return agentLoaded() ? "off in config" : "off, needs the agent in the JVM arguments";
+        return agentLoaded() ? "off in config" : "off, agent unavailable";
     }
 
     private static boolean agentLoaded() {

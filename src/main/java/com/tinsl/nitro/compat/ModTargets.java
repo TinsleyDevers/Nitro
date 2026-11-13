@@ -107,6 +107,9 @@ public final class ModTargets {
             "[5.20,6.0)", NONE, List.of("hashCode")));
         TARGETS.put("modernfix.modelCache", soft("modernfix", "org.embeddedt.modernfix.neoforge.dynresources.ModelBakeEventHelper",
             "[5.20,6.0)", List.of("topLevelModelLocations", "namespacesWithModels"), List.of("<init>")));
+        TARGETS.put("modernfix.variantNames", hard("modernfix",
+            "org.embeddedt.modernfix.neoforge.dynresources.ModelLocationBuilder", "[5.27.27+mc1.21.1]",
+            NONE, List.of("generateForBlock")));
         TARGETS.put("modernfix.modelVisibility", soft("modernfix", "org.embeddedt.modernfix.neoforge.dynresources.ModelBakeEventHelper",
             "[5.20,6.0)", NONE, List.of("wrapRegistry")));
         TARGETS.put("modernfix.visibilityIndex", soft("modernfix", "org.embeddedt.modernfix.neoforge.dynresources.ModelBakeEventHelper",
@@ -142,6 +145,19 @@ public final class ModTargets {
             "[1.0,2.0)", NONE, List.of("start")));
         TARGETS.put("watermedia", soft("watermedia", "org.watermedia.api.media.MediaAPI",
             "[3.0,4.0)", NONE, List.of("start", "startFFmpeg", "createPlayer", "ffmpegLoaded", "ffmpegError", "release")));
+
+        TARGETS.put("furnitureMaterials", hard("immersive_furniture",
+            "net.conczin.immersive_furniture.client.model.MaterialRegistry", "[0.4.1+1.21.1]",
+            List.of("materials"), List.of("sync")));
+        TARGETS.put("thrusterModels", hard("createthrusters",
+            "com.rieno.gadgetsandgizmos.neoforge.client.CTClientRenderers", "[2.0-pre-release-4]",
+            NONE, List.of("modifyBakingResult")));
+
+        TARGETS.put("industrialModels", hard("industrialforegoing",
+            "com.buuz135.industrial.module.ModuleTransportStorage", "[1.21-3.6.39]",
+            NONE, List.of("modifyBakingResult")));
+        TARGETS.put("trmtModels", hard("trmt", "milkucha.trmt.client.TRMTNeoForgeClient", "[0.5.1-1.21.1-neoforge]",
+            NONE, List.of("onModifyBakingResult")));
 
         // Behaviour-bound, not just shape-bound: the recipe pairing semantics are what is being changed.
         TARGETS.put("megacells", hard("megacells", "gripe._90.megacells.misc.CompressionService", "[4.11,4.12)",

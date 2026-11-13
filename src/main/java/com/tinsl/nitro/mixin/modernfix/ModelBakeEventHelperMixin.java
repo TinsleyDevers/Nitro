@@ -2,6 +2,7 @@ package com.tinsl.nitro.mixin.modernfix;
 
 import com.tinsl.nitro.Nitro;
 import com.tinsl.nitro.common.NitroSettings;
+import com.tinsl.nitro.compat.ModTargets;
 import net.neoforged.fml.loading.FMLPaths;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -31,8 +32,10 @@ public abstract class ModelBakeEventHelperMixin {
         if (configured != null) {
             return configured;
         }
-        Set<String> restricted = NitroSettings.load(FMLPaths.GAMEDIR.get()).modelVisibility;
-        if (modId instanceof String id && restricted.contains(id) && everything instanceof Enum<?> e) {
+        NitroSettings settings = NitroSettings.load(FMLPaths.GAMEDIR.get());
+        Set<String> restricted = settings.modelVisibility;
+        if (modId instanceof String id && everything instanceof Enum<?> e
+            && (restricted.contains(id) || nitro$knownRestrictedHandler(id, settings.compatFixes))) {
             try {
                 @SuppressWarnings({"unchecked", "rawtypes"})
                 Object selfAndDeps = Enum.valueOf((Class) e.getDeclaringClass(), "SELF_AND_DEPS");
@@ -43,5 +46,16 @@ public abstract class ModelBakeEventHelperMixin {
             }
         }
         return everything;
+    }
+
+    @org.spongepowered.asm.mixin.Unique
+    private static boolean nitro$knownRestrictedHandler(String modId, boolean enabled) {
+        // These versions only wrap their own models, plus Simulated docking connectors for Create Thrusters.
+        return switch (modId) {
+            case "createthrusters" -> ModTargets.check("thrusterModels", enabled).active();
+            case "industrialforegoing" -> ModTargets.check("industrialModels", enabled).active();
+            case "trmt" -> ModTargets.check("trmtModels", enabled).active();
+            default -> false;
+        };
     }
 }

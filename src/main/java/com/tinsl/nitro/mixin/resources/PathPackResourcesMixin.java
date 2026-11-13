@@ -43,6 +43,19 @@ public abstract class PathPackResourcesMixin implements com.tinsl.nitro.resource
     }
 
     @Unique
+    private volatile PackIndex.Index nitro$packIndex;
+
+    @Override
+    public PackIndex.Index nitro$index() {
+        return nitro$packIndex;
+    }
+
+    @Override
+    public void nitro$setIndex(PackIndex.Index index) {
+        nitro$packIndex = index;
+    }
+
+    @Unique
     private static Boolean nitro$dirCacheEnabled;
 
     @Unique
@@ -74,13 +87,18 @@ public abstract class PathPackResourcesMixin implements com.tinsl.nitro.resource
                 return; // too large: vanilla reads it from disk
             }
         }
-        if (NitroSettings.load(FMLPaths.GAMEDIR.get()).resourceIndex && !PackIndex.mayContain(self, this.root, type, location)) {
+        if (NitroSettings.load(FMLPaths.GAMEDIR.get()).resourceIndex && !PackIndex.index(self, this).mayContain(type, location)) {
             cir.setReturnValue(null);
         }
     }
 
     @Inject(method = "listResources", at = @At("HEAD"), cancellable = true)
     private void nitro$listFromCache(PackType type, String namespace, String path, PackResources.ResourceOutput output, CallbackInfo ci) {
+        if (NitroSettings.load(FMLPaths.GAMEDIR.get()).resourceIndex
+            && PackIndex.list((PathPackResources) (Object) this, this, type, namespace, path, output)) {
+            ci.cancel();
+            return;
+        }
         if (type != PackType.SERVER_DATA || !nitro$dirCache()) {
             return;
         }

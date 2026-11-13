@@ -10,4 +10,6 @@ import java.nio.file.Path;
 public interface PackRoot {
     /** The pack's root, inside its jar file system for a jar pack. */
     Path nitro$root();
+    PackIndex.Index nitro$index();
+    void nitro$setIndex(PackIndex.Index index);
 }

@@ -4,6 +4,9 @@ import com.tinsl.nitro.Nitro;
 import net.minecraft.server.packs.PackResources;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.PathPackResources;
+import net.minecraft.server.packs.resources.IoSupplier;
+import net.minecraft.FileUtil;
+import java.io.InputStream;
 import net.minecraft.resources.ResourceLocation;
 
 import java.io.IOException;
@@ -19,12 +22,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Stream;
 
 /**
@@ -43,60 +45,39 @@ import java.util.stream.Stream;
  * present, or a tree Nitro walks once otherwise.
  */
 public final class PackIndex {
-    private static final Map<PathPackResources, Index> INDEXES = Collections.synchronizedMap(new WeakHashMap<>());
-    private static final AtomicLong MISSES_SAVED = new AtomicLong();
-    private static volatile boolean loggedStats;
+    private static final LongAdder MISSES_SAVED = new LongAdder();
 
     // ModernFix integration (resolved reflectively so Nitro does not depend on it).
     private static volatile boolean modernfixProbed;
     private static Field engineField;
     private static MethodHandle hasResource;
     private static MethodHandle decompose;
+    private static MethodHandle collectResources;
 
     private PackIndex() {}
 
-    /** @return false if the pack definitely does not contain the resource. */
-    public static boolean mayContain(PathPackResources pack, Path root, PackType type, ResourceLocation location) {
-        // Directory packs may be regenerated in place. Only the reload-scoped directory cache
-        // may answer their misses; the permanent jar index must never hide new disk files.
-        if (root == null || root.getFileSystem() == java.nio.file.FileSystems.getDefault()) return true;
-        Index index = INDEXES.get(pack);
+    /** Build the per-pack index once, shared by reload warmup and lookups. */
+    public static Index index(PathPackResources pack, PackRoot holder) {
+        Index index = holder.nitro$index();
         if (index == null) {
             synchronized (pack) {
-                index = INDEXES.get(pack);
+                index = holder.nitro$index();
                 if (index == null) {
-                    index = create(pack, root);
-                    INDEXES.put(pack, index);
+                    Path root = holder.nitro$root();
+                    index = isJarPack(root) ? create(pack, root) : Index.UNKNOWN;
+                    holder.nitro$setIndex(index);
                 }
             }
         }
-        if (index == Index.UNKNOWN) {
-            return true;
-        }
-        String path = location.getPath();
-        boolean present;
-        Set<String> children = index.children(type.getDirectory(), location.getNamespace());
-        if (children != null) {
-            int slash = path.indexOf('/');
-            present = children.contains(slash < 0 ? path : path.substring(0, slash));
-        } else {
-            present = true;
-        }
-        if (present) {
-            present = index.contains(type.getDirectory() + "/" + location.getNamespace() + "/" + path);
-        }
-        if (!present) {
-            long n = MISSES_SAVED.incrementAndGet();
-            if (!loggedStats && n == 200_000) {
-                loggedStats = true;
-                Nitro.LOGGER.info("Nitro: resource index has short-circuited {} resource misses so far", n);
-            }
-        }
-        return present;
+        return index;
     }
 
     public static long missesSaved() {
-        return MISSES_SAVED.get();
+        return MISSES_SAVED.sum();
+    }
+
+    private static boolean isJarPack(Path root) {
+        return root != null && root.getFileSystem() != java.nio.file.FileSystems.getDefault();
     }
 
     /**
@@ -112,11 +93,9 @@ public final class PackIndex {
     public static void warm(PackType type, List<PackResources> packs) {
         List<PathPackResources> pending = new ArrayList<>();
         for (PackResources pack : packs) {
-            if (pack instanceof PathPackResources path && !INDEXES.containsKey(path)) {
-                Path root = rootOf(path);
-                if (root != null && root.getFileSystem() != java.nio.file.FileSystems.getDefault()) {
-                    pending.add(path);
-                }
+            if (pack instanceof PathPackResources path && pack instanceof PackRoot holder
+                && holder.nitro$index() == null && isJarPack(holder.nitro$root())) {
+                pending.add(path);
             }
         }
         if (pending.size() < 8) {
@@ -133,15 +112,7 @@ public final class PackIndex {
         for (PathPackResources pack : pending) {
             pool.execute(() -> {
                 try {
-                    Path root = rootOf(pack);
-                    if (root == null) {
-                        return;
-                    }
-                    synchronized (pack) {
-                        if (!INDEXES.containsKey(pack)) {
-                            INDEXES.put(pack, create(pack, root));
-                        }
-                    }
+                    index(pack, (PackRoot) pack);
                 } catch (Throwable ignored) {
                     // the on-demand path will build it instead
                 }
@@ -149,18 +120,13 @@ public final class PackIndex {
         }
         pool.shutdown();
         Nitro.LOGGER.debug("Nitro: warming {} {} pack indexes on {} threads", pending.size(), type, threads);
-        WARMED.addAndGet(pending.size());
+        WARMED.add(pending.size());
     }
 
-    private static final AtomicLong WARMED = new AtomicLong();
+    private static final LongAdder WARMED = new LongAdder();
 
     public static long warmed() {
-        return WARMED.get();
-    }
-
-    /** The pack's root path, read through the interface the mixin puts on {@link PathPackResources}. */
-    private static Path rootOf(PathPackResources pack) {
-        return pack instanceof PackRoot holder ? holder.nitro$root() : null;
+        return WARMED.sum();
     }
 
     private static Index create(PathPackResources pack, Path root) {
@@ -195,10 +161,9 @@ public final class PackIndex {
                 return null;
             }
             MethodHandle has = hasResource.bindTo(engine);
-            return relative -> {
+            return query -> {
                 try {
-                    String[] parts = (String[]) decompose.invoke(relative);
-                    return (boolean) has.invoke(parts);
+                    return (boolean) has.invokeExact(query.components());
                 } catch (Throwable t) {
                     return true;
                 }
@@ -228,6 +193,14 @@ public final class PackIndex {
             MethodHandles.Lookup lookup = MethodHandles.lookup();
             MethodHandle has = lookup.findVirtual(engineClass, "hasResource", MethodType.methodType(boolean.class, String[].class));
             MethodHandle dec = lookup.findStatic(engineClass, "decomposeCached", MethodType.methodType(String[].class, String.class));
+            try {
+                collectResources = lookup.findVirtual(engineClass, "collectResources", MethodType.methodType(void.class,
+                    PackType.class, String.class, String[].class, int.class, PackResources.ResourceOutput.class))
+                    .asType(MethodType.methodType(void.class, Object.class, PackType.class, String.class,
+                        String[].class, int.class, PackResources.ResourceOutput.class));
+            } catch (ReflectiveOperationException ignored) {
+                // Older cache engines can still answer individual file lookups.
+            }
             engineField = found;
             hasResource = has;
             decompose = dec;
@@ -237,6 +210,35 @@ public final class PackIndex {
         } catch (Throwable t) {
             Nitro.LOGGER.warn("Nitro: could not bind to ModernFix's pack index, using own", t);
         }
+    }
+
+    /**
+     * List from the same immutable file tree ModernFix already builds for jar packs.
+     * Directories and older ModernFix versions use the original implementation.
+     */
+    public static boolean list(PathPackResources pack, PackRoot holder, PackType type, String namespace,
+                               String prefix, PackResources.ResourceOutput output) {
+        if (!isJarPack(holder.nitro$root()) || prefix.isEmpty()) {
+            return false;
+        }
+        index(pack, holder);
+        if (collectResources == null || !FileUtil.decomposePath(prefix).isSuccess()) {
+            return false;
+        }
+        List<Map.Entry<ResourceLocation, IoSupplier<InputStream>>> resources = new ArrayList<>();
+        PackResources.ResourceOutput collect = (location, supplier) -> resources.add(Map.entry(location, supplier));
+        try {
+            Object engine = engineField.get(pack);
+            if (engine == null) {
+                return false;
+            }
+            String[] components = (String[]) decompose.invokeExact(prefix);
+            collectResources.invokeExact(engine, type, namespace, components, Integer.MAX_VALUE, collect);
+        } catch (Throwable exception) {
+            return false;
+        }
+        resources.forEach(entry -> output.accept(entry.getKey(), entry.getValue()));
+        return true;
     }
 
     private static Contains walk(Path root) {
@@ -256,41 +258,101 @@ public final class PackIndex {
             return null;
         }
         Set<String> frozen = Set.copyOf(files);
-        return frozen::contains;
+        return query -> frozen.contains(query.relative());
     }
 
     @FunctionalInterface
     private interface Contains {
-        boolean contains(String relative);
+        boolean contains(Query query);
     }
 
-    private static final class Index {
+    // FallbackResourceManager probes many packs with the same location. Elysium may also
+    // probe a condition file in between, so keep the two most recent locations per thread.
+    private static final ThreadLocal<Query[]> RECENT_QUERIES = ThreadLocal.withInitial(() -> new Query[2]);
+
+    private static Query query(PackType type, ResourceLocation location) {
+        Query[] recent = RECENT_QUERIES.get();
+        if (recent[0] != null && recent[0].matches(type, location)) {
+            return recent[0];
+        }
+        if (recent[1] != null && recent[1].matches(type, location)) {
+            Query previous = recent[0];
+            recent[0] = recent[1];
+            recent[1] = previous;
+        } else {
+            recent[1] = recent[0];
+            recent[0] = new Query(type, location);
+        }
+        return recent[0];
+    }
+
+    private static final class Query {
+        private final PackType type;
+        private final ResourceLocation location;
+        private final String firstPart;
+        private String relative;
+        private String[] components;
+
+        Query(PackType type, ResourceLocation location) {
+            this.type = type;
+            this.location = location;
+            String path = location.getPath();
+            int slash = path.indexOf('/');
+            this.firstPart = slash < 0 ? path : path.substring(0, slash);
+        }
+
+        boolean matches(PackType type, ResourceLocation location) {
+            return this.type == type && this.location == location;
+        }
+
+        String relative() {
+            if (relative == null) {
+                relative = type.getDirectory() + "/" + location.getNamespace() + "/" + location.getPath();
+            }
+            return relative;
+        }
+
+        String[] components() throws Throwable {
+            if (components == null) {
+                components = (String[]) decompose.invokeExact(relative());
+            }
+            return components;
+        }
+    }
+
+    public static final class Index {
         static final Index UNKNOWN = new Index(null, relative -> true);
         private static final Set<String> NONE = Set.of();
 
         private final Path root;
         private final Contains full;
-        /** "assets/namespace" -> names of the entries directly inside that directory. */
-        private final ConcurrentHashMap<String, Set<String>> children = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<String, Set<String>> clientChildren = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<String, Set<String>> serverChildren = new ConcurrentHashMap<>();
 
         Index(Path root, Contains full) {
             this.root = root;
             this.full = full;
         }
 
-        boolean contains(String relative) {
-            return full.contains(relative);
-        }
-
-        /** @return the names directly under {@code <typeDir>/<namespace>} in this pack, or null if unknown. */
-        Set<String> children(String typeDir, String namespace) {
-            String key = typeDir + "/" + namespace;
-            Set<String> set = children.get(key);
-            if (set == null) {
-                set = listChildren(typeDir, namespace);
-                children.put(key, set);
+        /** Whether the original resource lookup can still find this location. */
+        public boolean mayContain(PackType type, ResourceLocation location) {
+            if (this == UNKNOWN) {
+                return true;
             }
-            return set == NONE_UNKNOWN ? null : set;
+            String typeDir = type.getDirectory();
+            String namespace = location.getNamespace();
+            Query query = query(type, location);
+            var children = type == PackType.CLIENT_RESOURCES ? clientChildren : serverChildren;
+            Set<String> names = children.get(namespace);
+            if (names == null) {
+                names = children.computeIfAbsent(namespace, key -> listChildren(typeDir, key));
+            }
+            boolean possible = names == NONE_UNKNOWN || names.contains(query.firstPart);
+            boolean present = possible && full.contains(query);
+            if (!present) {
+                MISSES_SAVED.increment();
+            }
+            return present;
         }
 
         private static final Set<String> NONE_UNKNOWN = Collections.unmodifiableSet(new HashSet<>());

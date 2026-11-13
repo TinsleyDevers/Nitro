@@ -56,7 +56,20 @@ tasks.named('test') {
  * the actual mod is embedded as META-INF/nitro/nitro-mod.jar and registered through
  * NitroDependencyLocator, the same technique CrashAssistant uses.
  */
+def javaSetupJar = tasks.register('javaSetupJar', Jar) {
+    archiveBaseName = 'nitro-java-setup'
+    from(sourceSets.main.output) {
+        include 'com/tinsl/nitro/launch/JavaSetup.class'
+        include 'com/tinsl/nitro/launch/JavaFinder*.class'
+    }
+    manifest.attributes('Main-Class': 'com.tinsl.nitro.launch.JavaSetup')
+}
+
 tasks.named('jar', Jar) {
+    from(javaSetupJar.flatMap { it.archiveFile }) {
+        into 'META-INF/nitro'
+        rename { 'nitro-java-setup.jar' }
+    }
     dependsOn ':agent:jar', ':agent:stubJar', ':jar'
     archiveBaseName = 'nitro'
     archiveVersion = rootProject.version.toString()
@@ -76,6 +89,7 @@ tasks.named('jar', Jar) {
     manifest {
         attributes(
             'Automatic-Module-Name': 'nitro.launch',
+            'Main-Class': 'com.tinsl.nitro.launch.JavaSetup',
             'Specification-Title': 'Nitro',
             'Implementation-Title': 'Nitro',
             'Implementation-Version': rootProject.version.toString()

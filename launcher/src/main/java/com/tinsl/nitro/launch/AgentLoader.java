@@ -6,29 +6,20 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.instrument.Instrumentation;
+import java.lang.module.ModuleFinder;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 
-/**
- * Picks up Nitro's JVM agent when the player has added it to the JVM arguments, and explains how to
- * add it when they have not.
- *
- * Nitro does not attach an agent to the game on its own. Agent access lets code rewrite any class,
- * the JDK's included, and Java only hands that out to agents named on the command line, which is to
- * say with the player's say-so. So the agent runs only from
- * {@code -javaagent:<game dir>/.nitro/nitro-agent.jar}. That file is a small stub that never changes
- * between Nitro versions (see {@code nitro.stub.NitroAgentStub}); Nitro writes it here on every launch
- * where it is missing, so the argument can be added once and left alone.
- *
- * Without the agent everything that runs as a normal mod still works. What is lost is the part that
- * has to run before mods load: the module resolver back-port and the loader patches.
- */
+/** Loads Nitro's agent during early mod discovery, before the game module layer is resolved. */
 final class AgentLoader {
     private static final Logger LOGGER = LogManager.getLogger("Nitro");
+    private static final String AGENT_RESOURCE = "/META-INF/nitro/nitro-agent.jar";
     private static final String STUB_RESOURCE = "/META-INF/nitro/nitro-agent-stub.jar";
     static final String STUB_FILE = "nitro-agent.jar";
     private static final String PROP_LOADED = "nitro.agentLoaded";
@@ -50,8 +41,8 @@ final class AgentLoader {
 
     private AgentLoader() {}
 
-    /** @return the agent's Instrumentation, or null when the player has not added the agent. */
-    static synchronized Instrumentation load(Path gameDir) {
+    /** @return the agent instrumentation, or null when neither startup route succeeded. */
+    static synchronized Instrumentation load(Path gameDir, boolean autoAttach) {
         if (instrumentation != null) {
             return instrumentation;
         }
@@ -68,6 +59,12 @@ final class AgentLoader {
             LOGGER.warn("Nitro: could not write the agent loader: {}", e.toString());
         }
         removeAttachLeftovers(gameDir.resolve(".nitro"));
+
+        boolean explicit = Boolean.getBoolean(PROP_LOADED);
+        long start = System.nanoTime();
+        if (!explicit && autoAttach) {
+            attach(gameDir);
+        }
 
         if (!Boolean.getBoolean(PROP_LOADED)) {
             String argument = hint.argument(gameDir.toAbsolutePath().normalize());
@@ -92,31 +89,12 @@ final class AgentLoader {
                     LOGGER.debug("Nitro: looking for a Java 25 install failed: {}", e.toString());
                 }
             }
-            String error = System.getProperty(PROP_ERROR);
-            if (error != null) {
-                LOGGER.warn("Nitro: the agent is in the JVM arguments but did not start ({}). Launch patches are off.", error);
-            } else if (javaSteps != null) {
-                String nl = System.lineSeparator();
-                String where = java25 != null ? "Java 25 is already on this computer: " + java25
-                    : "Get Java 25 from " + JAVA_25_DOWNLOAD;
-                LOGGER.warn("Nitro: this launch is about to pause before any mod loads: Java {}'s module resolver is slow with "
-                    + "hundreds of mod jars (minutes on a 1000 mod pack). Two ways to remove it:{}"
-                    + "  1. Run this instance on Java 25, which has the fix built in and needs nothing else (fastest). {}: {}{}"
-                    + "     {}{}"
-                    + "  2. Or keep this Java and add this line to the JVM arguments once (it stays valid when Nitro updates):{}"
-                    + "     {}{}     {}: {}{}Everything else in Nitro is running either way.",
-                    Runtime.version().feature(), nl, hint.launcher(), javaSteps, nl, where, nl, nl, argument, nl, hint.launcher(),
-                    hint.steps(), nl);
-            } else if (Runtime.version().feature() >= 24) {
-                LOGGER.info("Nitro: running on Java {}, which already has the fast module resolver, so the Nitro agent is "
-                    + "optional here (it adds Mixin and jar lookup patches worth about a second on a 1000 mod pack). "
-                    + "To use it anyway: {}", Runtime.version().feature(), argument);
-            } else {
-                String nl = System.lineSeparator();
-                LOGGER.warn("Nitro: launch patches are off because the Nitro agent is not in the JVM arguments. "
-                    + "Nitro does not load it by itself. To turn them on, add this line once (it stays valid when Nitro updates):"
-                    + "{}    {}{}Started from {}: {}{}Everything else in Nitro is running.",
-                    nl, argument, nl, hint.launcher(), hint.steps(), nl);
+            LOGGER.info("Nitro: launch patches are unavailable this run. Automatic attach is {}. "
+                + "The explicit JVM argument is {}. {}: {}",
+                autoAttach ? "unavailable on this runtime" : "off in this instance", argument, hint.launcher(), hint.steps());
+            if (javaSteps != null) {
+                LOGGER.info("Nitro: Java 25 includes the fast module resolver. {}",
+                    java25 == null ? "Download: " + JAVA_25_DOWNLOAD : "Installed Java 25: " + java25);
             }
             return null;
         }
@@ -126,24 +104,52 @@ final class AgentLoader {
             Class<?> boot = Class.forName("nitro.agent.boot.NitroBoot", true, null);
             AgentLoader.class.getModule().addReads(boot.getModule());
             instrumentation = (Instrumentation) boot.getField("INSTRUMENTATION").get(null);
-            String ms = System.getProperty("nitro.agentStartMillis", "?");
-            int feature = Runtime.version().feature();
+            String ms = explicit ? System.getProperty("nitro.agentStartMillis", "?")
+                : Long.toString(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
+            LOGGER.info("Nitro: agent loaded {} ({} ms)", explicit ? "from the JVM arguments" : "by automatic attach", ms);
             if (Boolean.getBoolean(PROP_PATCHED)) {
-                LOGGER.info("Nitro: agent loaded from the JVM arguments ({} ms); hot-patched java.lang.module.Resolver#makeGraph "
-                    + "with the JDK 25 algorithm (removes the multi-minute module resolution pause caused by 1000+ automatic modules)", ms);
-                LOGGER.info("Nitro: running this instance on Java 25 is faster still: on a 1017 mod pack it reached the menu in "
-                    + "100 s on Java 25, against 134 s on Java 21 with the agent (this launch: Java {}). {}: {}", feature, hint.launcher(),
-                    hint.javaSteps() != null ? hint.javaSteps() : "set this instance's Java to a Java 25 installation.");
-            } else if (feature >= 24) {
-                LOGGER.info("Nitro: agent loaded from the JVM arguments ({} ms); Java {} already ships the fast module resolver", ms, feature);
-            } else {
-                LOGGER.warn("Nitro: agent loaded but the module resolver patch was NOT applied ({}). "
-                    + "Startup will include the long module-resolution pause.", System.getProperty(PROP_ERROR, "off in config"));
+                LOGGER.info("Nitro: patched Java's module resolver with the JDK 25 algorithm");
+            } else if (Runtime.version().feature() >= 24) {
+                LOGGER.info("Nitro: Java {} already ships the fast module resolver", Runtime.version().feature());
+            } else if (System.getProperty(PROP_ERROR) != null) {
+                LOGGER.warn("Nitro: the module resolver patch failed: {}", System.getProperty(PROP_ERROR));
             }
             return instrumentation;
         } catch (Throwable t) {
             LOGGER.warn("Nitro: agent loaded but could not be reached; loader patches disabled", t);
             return null;
+        }
+    }
+
+    private static void attach(Path gameDir) {
+        if (ModuleFinder.ofSystem().find("jdk.attach").isEmpty()) {
+            LOGGER.info("Nitro: automatic attach unavailable because this Java installation has no jdk.attach module");
+            return;
+        }
+        Path log = gameDir.resolve(".nitro").resolve("attach.log");
+        Process helper = null;
+        try {
+            Path agent = NitroLaunchFiles.extract(gameDir, AGENT_RESOURCE, "nitro-attach-agent");
+            boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows");
+            Path java = Path.of(System.getProperty("java.home"), "bin", windows ? "java.exe" : "java");
+            helper = new ProcessBuilder(java.toString(), "--add-modules", "jdk.attach", "-cp",
+                agent.toString(), "nitro.agent.Attach", gameDir.toString())
+                .redirectErrorStream(true)
+                .redirectOutput(log.toFile())
+                .start();
+            if (!helper.waitFor(8, TimeUnit.SECONDS)) {
+                LOGGER.warn("Nitro: automatic attach timed out. See {}", log);
+            } else if (helper.exitValue() != 0 || !Boolean.getBoolean(PROP_LOADED)) {
+                LOGGER.warn("Nitro: Java did not load the agent by automatic attach. See {}", log);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (IOException | RuntimeException e) {
+            LOGGER.warn("Nitro: could not start the automatic attach helper: {}", e.toString());
+        } finally {
+            if (helper != null && helper.isAlive()) {
+                helper.destroyForcibly();
+            }
         }
     }
 
@@ -173,12 +179,12 @@ final class AgentLoader {
         }
     }
 
-    /** Nitro 1.0 and 1.1 extracted the agent next to a log from the helper that attached it. Neither is used now. */
+    /** Nitro 1.0 and 1.1 used a different filename for their extracted agents. */
     private static void removeAttachLeftovers(Path dir) {
         if (!Files.isDirectory(dir)) {
             return;
         }
-        try (DirectoryStream<Path> old = Files.newDirectoryStream(dir, "{nitro-agent-*.jar,attach.log}")) {
+        try (DirectoryStream<Path> old = Files.newDirectoryStream(dir, "nitro-agent-*.jar")) {
             for (Path p : old) {
                 try {
                     Files.deleteIfExists(p);

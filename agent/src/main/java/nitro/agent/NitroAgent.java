@@ -9,12 +9,10 @@ import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.jar.JarFile;
 
 /**
- * The Nitro JVM agent. It only ever runs because the player added
- * {@code -javaagent:<game dir>/.nitro/nitro-agent.jar} to the JVM arguments: that stub (see
- * {@code nitro.stub.NitroAgentStub}) puts this jar on the bootstrap class path and calls
- * {@link #install}. Nitro never attaches an agent to the game by itself.
+ * Both dynamic attach and the explicit JVM startup stub install the same bootstrap hooks.
  *
  * It does two things:
  * <ol>
@@ -33,6 +31,16 @@ public final class NitroAgent {
     public static final String PROP_ERROR = "nitro.resolverPatchError";
 
     private NitroAgent() {}
+
+    /** Entry point for the Attach API. The JVM needs the JarFile for subsequent bootstrap lookups. */
+    public static void agentmain(String gameDir, Instrumentation inst) throws Exception {
+        if (!Boolean.getBoolean(PROP_LOADED)) {
+            Path jar = Path.of(NitroAgent.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            inst.appendToBootstrapClassLoaderSearch(new JarFile(jar.toFile()));
+            System.clearProperty(PROP_ERROR);
+            install(inst, gameDir);
+        }
+    }
 
     /**
      * @param inst    the Instrumentation the JVM gave the stub

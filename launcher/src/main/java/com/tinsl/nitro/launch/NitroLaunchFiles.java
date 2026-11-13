@@ -2,12 +2,14 @@ package com.tinsl.nitro.launch;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.Arrays;
 
 /** Extracts jars embedded in the Nitro launcher jar into {@code <gameDir>/.nitro}, keyed by content hash. */
 final class NitroLaunchFiles {
@@ -30,10 +32,19 @@ final class NitroLaunchFiles {
         Path dir = gameDir.resolve(".nitro");
         Files.createDirectories(dir);
         Path target = dir.resolve(baseName + "-" + hash + ".jar");
-        if (!Files.isRegularFile(target) || Files.size(target) != bytes.length) {
-            Path tmp = dir.resolve(baseName + "-" + hash + ".tmp");
-            Files.write(tmp, bytes);
-            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+        if (!Files.isRegularFile(target) || Files.size(target) != bytes.length
+            || !Arrays.equals(Files.readAllBytes(target), bytes)) {
+            Path tmp = Files.createTempFile(dir, baseName + "-", ".tmp");
+            try {
+                Files.write(tmp, bytes);
+                try {
+                    Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                } catch (AtomicMoveNotSupportedException e) {
+                    Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+            } finally {
+                Files.deleteIfExists(tmp);
+            }
         }
         // Remove stale copies from previous versions.
         try (var stream = Files.list(dir)) {

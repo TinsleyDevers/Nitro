@@ -2,6 +2,7 @@ package com.tinsl.nitro.mixin.modernfix;
 
 import com.tinsl.nitro.Nitro;
 import com.tinsl.nitro.client.ModelUniverse;
+import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
 import net.minecraft.client.resources.model.BakedModel;
 import net.minecraft.client.resources.model.ModelResourceLocation;
 import net.minecraft.resources.FileToIdConverter;
@@ -40,6 +41,12 @@ public abstract class ModelBakeEventHelperCacheMixin {
     @Shadow @Final @Mutable private Set<String> namespacesWithModels;
 
     @Unique private boolean nitro$hit;
+
+    @Redirect(method = "<init>", at = @At(value = "NEW",
+        target = "(I)Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;"))
+    private ObjectLinkedOpenHashSet<ModelResourceLocation> nitro$allocateLocations(int capacity) {
+        return new ObjectLinkedOpenHashSet<>(ModelUniverse.currentLocations() == null ? capacity : 0);
+    }
 
     /** First Set.forEach in the constructor: the walk over every block generating its state model locations. */
     @Redirect(

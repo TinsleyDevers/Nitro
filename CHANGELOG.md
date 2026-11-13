@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.3.0
+
+- Restore automatic loading of the bundled startup agent where Java permits dynamic attach.
+- When automatic attach is off, the startup notice can enable it for the next launch in one click.
+  Keep the explicit JVM argument available for runtimes where automatic attach is unavailable.
+
+- Immersive Furniture resolves individual materials on demand and builds its full list only
+  when a caller enumerates it. A resource reload replaces the cache.
+- Restrict model bake handlers in tested Create Gadgets & Gizmos, Industrial Foregoing, and
+  TRMT versions to the model namespaces they use.
+- Keep the resource lookup index on each jar pack, reuse ModernFix's jar file listings when
+  available, and reuse the model universe without allocating a second full-size set.
+  Share model variant names across identical property sets and pre-size the block-state ID tables.
+- Shorten the initial loading overlay's fade and build the debug world’s state list only when used.
+- Log when the startup overlay clears and when the player opens the Singleplayer world list.
+  Nitro leaves the client on the main menu at startup.
+- Offer automatic and manual Java 25 setup in the startup notice. For Prism, automatic setup
+  applies to the current instance after Minecraft and the launcher exit. Keep the standalone setup command.
+
 ## 1.2.0 (2026-09-29)
 
 Nitro no longer loads its JVM agent by itself. Up to now it started a short helper Java process

@@ -7,6 +7,9 @@
   "plugin": "com.tinsl.nitro.mixin.NitroMixinPlugin",
   "mixins": [
     "RecipeManagerMixin",
+    "registry.IdMapperAccess",
+    "registry.BlockStateIdsMixin",
+    "registry.DebugWorldStatesMixin",
     "resources.PathPackResourcesMixin",
     "resources.MultiPackResourceManagerMixin",
     "resources.MoonlightFastSearchPackMixin",
@@ -29,6 +32,7 @@
     "modernfix.ModelBakeEventHelperCacheMixin",
     "modernfix.ModelManagerReloadMixin",
     "modernfix.ModelVisibilityIndexMixin",
+    "modernfix.ModelVariantNamesMixin",
     "moreculling.MoreCullingLazyShapeMixin",
     "puzzles.PuzzlesTopLevelModelsMixin",
     "jaopca.JaopcaModelHandlerMixin",
@@ -38,7 +42,9 @@
     "jei.ErrorUtilMixin",
     "random.LegacyRandomSourceMixin",
     "random.C2meCheckedRandomMixin",
-    "compat.WaterMediaFFmpegMixin"
+    "compat.WaterMediaFFmpegMixin",
+    "compat.FurnitureMaterialsMixin",
+    "compat.StartupFadeMixin"
   ],
   "injectors": {
     "defaultRequire": 0

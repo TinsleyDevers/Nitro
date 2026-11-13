@@ -45,7 +45,7 @@ public record LauncherHint(String launcher, String steps, Path agentFile, boolea
             case "the Minecraft Launcher" -> "Installations, the three dots on this installation, Edit, More options: set Java "
                 + "executable to a Java 25 javaw.exe, then restart the game.";
             case "a dedicated server" -> "Start the server with a Java 25 java instead of Java 21.";
-            case "the CurseForge app" -> null;
+            case "the CurseForge app" -> "In Settings, Minecraft, Java, select the Java 25 executable and restart this profile.";
             default -> "Set this instance to use a Java 25 installation in your launcher's Java settings.";
         };
     }

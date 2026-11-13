@@ -38,6 +38,7 @@ class NitroSettingsTest {
         assertTrue(written.contains("strictVersions=false"), "new keys are written out");
         assertTrue(written.contains("# "), "every key is documented");
         assertTrue(settings.resolverPatch);
+        assertTrue(settings.autoAttachAgent);
         assertTrue(settings.unknownKeys.isEmpty());
         assertTrue(settings.overriddenKeys.isEmpty());
     }
@@ -89,10 +90,10 @@ class NitroSettingsTest {
         NitroSettings.load(gameDir);
         Path file = gameDir.resolve("config").resolve(NitroSettings.FILE_NAME);
         String before = Files.readString(file);
-        NitroSettings.save(gameDir, "agentNotice", "false");
+        NitroSettings.save(gameDir, "autoAttachAgent", "true");
         String after = Files.readString(file);
-        assertTrue(after.contains("agentNotice=false"));
-        assertFalse(after.contains("agentNotice=true"));
+        assertTrue(after.contains("autoAttachAgent=true"));
+        assertFalse(after.contains("autoAttachAgent=false"));
         assertEquals(before.lines().count(), after.lines().count(), "no lines added or lost");
         assertTrue(after.contains("# Back-port the JDK 25"), "comments are kept");
     }

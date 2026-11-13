@@ -19,8 +19,8 @@ import java.util.zip.ZipFile;
 /**
  * The file the player points {@code -javaagent} at: {@code <game dir>/.nitro/nitro-agent.jar}.
  *
- * Nitro only gets JVM agent access when the player adds it to the JVM arguments themselves; it never
- * attaches to the game on its own. That makes the path in the argument a thing the player types once,
+ * This is the explicit startup route for launchers or runtimes where dynamic attach is unavailable.
+ * The path in the argument is a thing the player types once,
  * so it has to stay valid across Nitro updates, and a JVM refuses to start at all when a
  * {@code -javaagent} file is missing. Hence this stub: it never changes between Nitro versions and
  * holds no patching code. It finds the Nitro jar that is actually in the mods folder, takes the

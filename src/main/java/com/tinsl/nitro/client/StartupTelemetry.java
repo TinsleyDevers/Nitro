@@ -7,6 +7,7 @@ import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.minecraft.client.gui.screens.worldselection.SelectWorldScreen;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
 
@@ -18,8 +19,9 @@ import java.lang.management.ManagementFactory;
  */
 public final class StartupTelemetry {
     private static boolean menuReported;
+    private static boolean worldSelectionReported;
     private static long worldLoadStartNanos;
-    private static Runnable onMainMenu = () -> {};
+    private static Runnable onMainMenu;
 
     private StartupTelemetry() {}
 
@@ -32,23 +34,43 @@ public final class StartupTelemetry {
     public static void register(Runnable atMainMenu) {
         onMainMenu = atMainMenu;
         NeoForge.EVENT_BUS.addListener(StartupTelemetry::onScreenOpening);
+        NeoForge.EVENT_BUS.addListener(StartupTelemetry::onClientTick);
         NeoForge.EVENT_BUS.addListener(StartupTelemetry::onLoggingIn);
         NeoForge.EVENT_BUS.addListener(StartupTelemetry::onLoggingOut);
     }
 
     private static void onScreenOpening(ScreenEvent.Opening event) {
         Screen next = event.getNewScreen();
-        if (!menuReported && next instanceof TitleScreen) {
-            menuReported = true;
-            long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
-            Nitro.LOGGER.info("Nitro report: main menu reached {} s after JVM start", String.format("%.1f", uptime / 1000.0));
-            onMainMenu.run();
-        }
         if (Minecraft.getInstance().level != null) {
             return;
         }
         boolean stayingInMenus = next instanceof TitleScreen || next instanceof SelectWorldScreen || next instanceof JoinMultiplayerScreen;
         if (stayingInMenus) worldLoadStartNanos = 0L;
+    }
+
+    private static void onClientTick(ClientTickEvent.Post event) {
+        if (menuReported && worldSelectionReported) {
+            return;
+        }
+        Minecraft client = Minecraft.getInstance();
+        if (client.getOverlay() != null || client.level != null || client.screen == null) {
+            return;
+        }
+        if (!menuReported && worldLoadStartNanos == 0L) {
+            menuReported = true;
+            if (onMainMenu != null) {
+                long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
+                Nitro.LOGGER.info("Nitro report: startup overlay cleared at {} ms after JVM start", uptime);
+                Thread.ofVirtual().name("Nitro startup report").start(onMainMenu);
+            }
+        }
+        if (!worldSelectionReported && client.screen instanceof SelectWorldScreen) {
+            worldSelectionReported = true;
+            long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
+            if (onMainMenu != null) {
+                Nitro.LOGGER.info("Nitro report: world selection reached at {} ms after JVM start", uptime);
+            }
+        }
     }
 
     private static void onLoggingIn(ClientPlayerNetworkEvent.LoggingIn event) {
@@ -59,7 +81,9 @@ public final class StartupTelemetry {
             long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
             Nitro.LOGGER.info("Nitro report: in the world {} s after JVM start, without stopping at the main menu",
                 String.format("%.1f", uptime / 1000.0));
-            onMainMenu.run();
+            if (onMainMenu != null) {
+                onMainMenu.run();
+            }
         }
         if (worldLoadStartNanos != 0L) {
             double seconds = (System.nanoTime() - worldLoadStartNanos) / 1_000_000_000.0;

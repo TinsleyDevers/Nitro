@@ -84,7 +84,9 @@ public final class NitroSettings {
     public final boolean startupProfiler;
     /** Version range of JEI that the asynchronous startup is applied to. */
     public final String jeiVersions;
-    /** Show the main-menu notice about adding the agent to the JVM arguments. */
+    /** Attach the embedded agent from a short-lived helper JVM during early startup. */
+    public final boolean autoAttachAgent;
+    /** Show the main-menu notice when launch patches need setup. */
     public final boolean agentNotice;
     /** Keys found in the config file that Nitro does not know; reported once by the caller. */
     public final List<String> unknownKeys;
@@ -123,6 +125,7 @@ public final class NitroSettings {
         this.strictVersions = bool(p, "strictVersions", false);
         this.startupProfiler = bool(p, "startupProfiler", true);
         this.jeiVersions = string(p, "jeiVersions", DEFAULT_JEI_VERSIONS);
+        this.autoAttachAgent = bool(p, "autoAttachAgent", true);
         this.agentNotice = bool(p, "agentNotice", true);
         this.overriddenKeys = List.copyOf(overrides);
         this.unknownKeys = unknown(p);
@@ -136,7 +139,7 @@ public final class NitroSettings {
         }
         Set<String> found = new TreeSet<>();
         for (String key : p.stringPropertyNames()) {
-            if (!known.contains(key)) {
+            if (!known.contains(key) && !key.equals("openWorldSelectionOnStartup")) {
                 found.add(key);
             }
         }
@@ -308,9 +311,12 @@ public final class NitroSettings {
             # Sample the loading threads a few times a second during launch and report which mods the time went to,
             # including time spent waiting on the network. Costs well under a percent of launch and tells you what is
             # slow that Nitro cannot fix. Reported once when loading completes, alongside the fix table."""},
+        new String[] {"autoAttachAgent", "true", """
+            # Load the embedded Nitro agent automatically during startup when Java permits dynamic attach.
+            # Set false to disable automatic attach. An explicit -javaagent still works."""},
         new String[] {"agentNotice", "true", """
-            # Show a one-time screen on the main menu when the Nitro agent is not in the JVM arguments, with the line
-            # to add and a button that copies it. Choosing "Don't show again" on that screen turns this off."""},
+            # Offer agent setup on the main menu when automatic attach is off or Java blocks it.
+            # Choosing "Don't show again" turns this notice off."""},
         new String[] {"jeiVersions", DEFAULT_JEI_VERSIONS, """
             # JEI version range the asynchronous startup applies to, as a maven range. The async startup re-implements
             # JEI's own start method, so it is tied to JEI's internals rather than to its public API; the default covers
