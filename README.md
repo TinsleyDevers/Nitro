@@ -52,6 +52,10 @@ working across Nitro updates.
 Use the path Nitro prints for your launcher. Keep that stub while a launcher points at it,
 because Java checks the path before Minecraft starts.
 
+![Nitro startup benchmark on a Minecraft modpack with over 1,000 mod jars](https://cdn.modrinth.com/data/EC614zDv/images/be9546b1a78b2cd17710cc48c95d3432348d5b5f.png)
+
+![What Nitro speeds up on NeoForge 1.21.1](https://cdn.modrinth.com/data/EC614zDv/images/9782faa9edfa0b50cb7bb9e2a20aa28779dd80a0.png)
+
 ## Will it work on my pack
 
 The launch fixes (module resolver, Mixin, the jar handler, the resource index) do
